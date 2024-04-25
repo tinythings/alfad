@@ -1,0 +1,5 @@
+name: bar
+cmd: [echo, "hello from inside bar"]
+depends: 
+    foo: Done
+

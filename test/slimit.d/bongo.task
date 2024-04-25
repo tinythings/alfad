@@ -1,0 +1,5 @@
+name: bongo
+cmd: [echo, "hello from inside bongo"]
+depends:
+    foo: Done
+    bar: Done
