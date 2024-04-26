@@ -1,0 +1,82 @@
+# Configure in which cathegory/stage this service will be
+# running. It should correspond to those, defined in the 
+# cathegories configuration:
+cathegory: applications
+
+# ID is a service label, written in a free form, but must be respected
+# in other services.
+id: echo_example
+
+# Short description that will be displayed as a message during the
+# service start:
+description: Echo the username out of the current environment
+
+# Dependencies. This is a dependency *within* the cathegory. In other
+# words, asking "after network" will not have any effect, because
+# network cathegory is managed elsewhere in the higher level of the
+# flow.
+#
+# Two logical operators are here in place:
+#
+# "," (comma)
+#     "OR" operator. Expression: "foo, bar" means "foo OR bar".
+#
+# ";" (semicolon)
+#     "AND" operator. Expression: "foo; baz" means "foo AND baz".
+#
+# Here is example that the "echo_example" must start iff (if only and
+# only if) "baz" is finished and one of "foo" or "bar" are finished:
+after: foo, bar; baz
+
+# Similar to "after", just before. The echo_example must start before
+# iff (if and only if) "baz" did not started and one of "foo" or "bar"
+# did not started yet.
+before: foo, bar; baz
+
+# Notification mechanism, which notifies the alfad about service
+# startup is finished.
+# Possible choices are:
+# - simple
+# - single
+#
+# Simple
+# ------
+# Just starts a process and keeps running, until alfad terminates
+# it. Alfad is tracking it, and if the service is no longer running,
+# error will be collected and service will be marked as faulty.
+#
+# Single
+# ------
+# Same as simple, but quits afterwards on its own. Alfad won't be
+# tracking it anymore.
+type: simple
+
+# How many retries to perform, if a particular app returns non-zero
+# return code. Value is integer. If value is 0 (zero) no retries will
+# happen, and this is also default behaviour, if retries are not even
+# defined in the configuration.
+retries: 10
+
+# Command definition. It has two modes:
+#   1. Single command
+#   2. Multiple script-like command
+#
+# The "exec" also is environment-aware, so the variables from the
+# environment can be addressed via $ literal. However, alfad doesn't
+# eval() them, only replacing their values.
+#
+# Currently two prefixes are supported:
+#
+# "-" (minus)
+#     Ignore exit code
+#
+# ":" (colon)
+#     Ignore environment variables
+#
+# Below is a multi-line command, which would be equivalent to a
+# single-line that would be written with a ";" (semicolon) delimeter:
+exec: |
+  echo $USER
+  -false
+  :echo "foo bar $TEST"
+
