@@ -13,6 +13,8 @@ use crate::task::TaskState;
 type StatusMap<'a> = &'static HashMap<&'a str, Arc<RwLock<TaskState>>>;
 type WaitingList<'a> = &'static HashMap<&'a str, Arc<RwLock<Vec<Waker>>>>;
 
+static VERSION: &str = "0.1";
+
 fn main() {
     let configs = read_config();
     #[cfg(feature = "validate")]
