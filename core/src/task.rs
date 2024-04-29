@@ -79,7 +79,7 @@ pub struct TaskConfig {
     #[serde(default, deserialize_with = "OneOrMany::read")]
     pub after: SmallVec<[String; 1]>,
     #[serde(default)]
-    respawn: Respawn,
+    _respawn: Respawn,
     pub group: Option<String>,
 }
 
