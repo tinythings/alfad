@@ -1,0 +1,4 @@
+name: waits-for-running
+with:
+    - bongo
+cmd: [echo, "bongo is running"]
