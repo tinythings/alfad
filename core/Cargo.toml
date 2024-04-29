@@ -1,0 +1,27 @@
+[package]
+name = "slimit"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.82"
+clap = { version = "4.5.4", features = ["derive"] }
+enum-display-derive = "0.1.1"
+futures = "0.3.30"
+itertools = "0.12.1"
+nix = { version = "0.28.0", features = ["fs", "signal"] }
+serde = { version = "1.0.198", features = ["derive"] }
+serde_yaml = "0.9.34"
+shlex = "1.3.0"
+smallvec = { version = "1.13.2", features = ["serde"] }
+smol = "2.0.0"
+thiserror = "1.0.59"
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
+
+[features]
+default = ["validate", "before"]
+# Validate the task tree on startup
+validate = []
+# Enable the "before" field in task configs
+before = []

@@ -1,0 +1,4 @@
+name: waits-on-own-group
+group: my-group
+after:
+  - ~my-group

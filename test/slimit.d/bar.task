@@ -1,5 +1,4 @@
 name: bar
 cmd: [echo, "hello from inside bar"]
-after: 
-    - foo
+after: foo
 
