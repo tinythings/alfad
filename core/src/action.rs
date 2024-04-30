@@ -12,7 +12,7 @@ pub enum Action {
         /// Send SIGKILL instead of SIGTERM
         force: bool,
     },
-    /// Kill a task
+    /// Kill a task and prevent respawn
     Deactivate {
         task: String,
         #[clap(long)]
