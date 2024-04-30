@@ -1,9 +1,9 @@
 [package]
-name = "slimit-ctl"
+name = "alfad-ctl"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 anyhow = "1.0.82"
 clap = "4.5.4"
-slimit = {path= "../core"}
+alfad = {path= "../core"}

@@ -18,9 +18,9 @@ pub fn read_config() -> Vec<TaskConfig> {
     // let span = info_span!("Parsing task files");
     // let _span = span.enter();
     let dir = if cfg!(profile = "release") {
-        "/etc/slimit/slimit.d"
+        "/etc/alfad/alfad.d"
     } else {
-        "test/slimit.d"
+        "test/alfad.d"
     };
 
     let dir_reader = match read_dir(dir) {

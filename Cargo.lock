@@ -3,6 +3,35 @@
 version = 3
 
 [[package]]
+name = "alfad"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "enum-display-derive",
+ "futures",
+ "itertools",
+ "nix",
+ "serde",
+ "serde_yaml",
+ "shlex",
+ "smallvec",
+ "smol",
+ "thiserror",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "alfad-ctl"
+version = "0.1.0"
+dependencies = [
+ "alfad",
+ "anyhow",
+ "clap",
+]
+
+[[package]]
 name = "anstream"
 version = "0.6.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -723,35 +752,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "slimit"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "enum-display-derive",
- "futures",
- "itertools",
- "nix",
- "serde",
- "serde_yaml",
- "shlex",
- "smallvec",
- "smol",
- "thiserror",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "slimit-ctl"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "slimit",
-]
-
-[[package]]
 name = "smallvec"
 version = "1.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -914,7 +914,7 @@ checksum = "711b9620af191e0cdc7468a8d14e709c3dcdb115b36f838e601583af800a370a"
 name = "validate"
 version = "0.1.0"
 dependencies = [
- "slimit",
+ "alfad",
 ]
 
 [[package]]
