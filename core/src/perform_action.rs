@@ -1,33 +1,40 @@
 use std::{str::FromStr, sync::Arc};
 
-use crate::{action::{Action, ActionError}, task::{ContextMap, TaskContext, TaskState}};
+use crate::{
+    action::{Action, ActionError},
+    task::{ContextMap, TaskContext, TaskState},
+};
 use nix::sys::signal::Signal;
 use smol::lock::RwLock;
 
 pub async fn perform<'a>(s: &'a str, context: &ContextMap<'_>) -> Result<(), ActionError> {
     match Action::from_str(s)? {
-        Action::Kill { task, force } => {
-            kill(task, force, context).await?;
+        Action::Kill { task, force } => kill(&task, force, context).await?,
+        Action::Deactivate { task, force } => {
+            kill(&task, force, context).await?;
+            get_context(context, &task)?
+                .write()
+                .await
+                .update_state(TaskState::Deactivated);
         }
         Action::Restart { task, force } => {
-            kill(task.clone(), force, context).await?;
+            kill(&task, force, context).await?;
             start(task, force, context).await?;
         }
-        Action::Start { task, force } => start(task, force, context).await?
+        Action::Start { task, force } => start(task, force, context).await?,
     }
     Ok(())
 }
 
-async fn kill(task: String, force: bool, context: &ContextMap<'_>) -> Result<(), ActionError> {
-    let context = get_context(context, &task)?;
+async fn kill(task: &str, force: bool, context: &ContextMap<'_>) -> Result<(), ActionError> {
+    let context = get_context(context, task)?;
     let mut context = context.write().await;
     if force {
         context.send_signal(Signal::SIGKILL);
-        context.update_state(crate::task::TaskState::Terminated);
-
+        context.update_state(TaskState::Terminated);
     } else {
         context.send_signal(Signal::SIGTERM);
-        context.update_state(crate::task::TaskState::Terminating);
+        context.update_state(TaskState::Terminating);
     }
     Ok(())
 }

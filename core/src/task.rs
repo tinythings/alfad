@@ -1,19 +1,13 @@
 use std::{
-    collections::HashMap,
-    future::Future,
-    num::NonZeroU32,
-    path::Path,
-    pin::{pin, Pin},
-    sync::Arc,
-    task::{Context, Poll, Waker},
-    time::Duration,
+    collections::HashMap, future::Future, num::NonZeroU32, ops::ControlFlow, path::Path, pin::{pin, Pin}, sync::Arc, task::{Context, Poll, Waker}
 };
 
 use enum_display_derive::Display;
 use nix::{sys::signal::Signal, unistd::Pid};
 use smallvec::SmallVec;
 use std::fmt::Display;
-use tracing::{error, info, warn};
+use tracing::{error, info, info_span, trace, warn};
+
 
 use serde::Deserialize;
 use smol::{
@@ -36,6 +30,8 @@ pub enum TaskState {
     Terminating,
     Terminated,
     Killed,
+    /// Like Terminated but will not try to run again even if retries are left
+    Deactivated,
 }
 
 impl Default for TaskState {
@@ -45,6 +41,7 @@ impl Default for TaskState {
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
 pub enum Respawn {
     /// Never retry this task (default)
     No,
@@ -52,12 +49,7 @@ pub enum Respawn {
     ///
     /// N = 0, restart this task an unlimited number of times
     // TODO: Does manual restart affect the counter, if so: how
-    Retry { amount: usize },
-    /// Restart this task up to N times but wait between retries
-    ///
-    /// N = 0, restart this task an unlimited number of times
-    // TODO: Does manual restart affect the counter, if so: how
-    Timeout { amount: usize, time: Duration },
+    Retry(usize)
 }
 
 impl Default for Respawn {
@@ -79,7 +71,7 @@ pub struct TaskConfig {
     #[serde(default, deserialize_with = "OneOrMany::read")]
     pub after: SmallVec<[String; 1]>,
     #[serde(default)]
-    _respawn: Respawn,
+    respawn: Respawn,
     pub group: Option<String>,
 }
 
@@ -152,25 +144,54 @@ impl<'a> Task<'a> {
 
         self.state = state;
         loop {
+            trace!(state = %self.state);
+            use TaskState as S;
             match self.state {
-                TaskState::Waiting => {
+                S::Waiting => {
                     ready!(self.wait_for_dependencies(cx));
-                    self.state = TaskState::Starting
+                    self.state = S::Starting
                 }
-                TaskState::Starting => {
+                S::Starting => {
                     ready!(pin!(self.perform()).poll(cx));
-                    self.state = TaskState::Running;
+                    self.state = S::Running;
                 }
-                TaskState::Running => {
+                S::Running => {
                     ready!(pin!(self.running()).poll(cx));
                 }
-                TaskState::Terminating => {
+                S::Terminating => {
                     ready!(pin!(self.wait_for_terminate()).poll(cx));
-                    self.state = TaskState::Terminated
+                    self.state = S::Terminated
+                }
+                S::Failed | S::Terminated => {
+                    if ready!(pin!(self.respawn()).poll(cx)).is_break() {
+                        return Poll::Pending;
+                    }
                 }
                 _ => return Poll::Pending,
             }
         }
+    }
+
+    async fn respawn(&mut self) -> ControlFlow<()> {
+        match self.config.respawn {
+            Respawn::No => ControlFlow::Break(()),
+            Respawn::Retry(amount) => self.respawn_inner(amount).await,
+        }
+    }
+
+    async fn respawn_inner(&mut self, amount: usize) -> ControlFlow<()> {
+        if amount != 0 {
+            let attempts = self.context.read().await.respawn_attempts;
+            if attempts >= amount {
+                info!("Deactivating {task}", task = self.config.name);
+                self.state = TaskState::Deactivated;
+                return ControlFlow::Break(());
+            }
+            self.context.write().await.respawn_attempts += 1;
+        }
+        info!("Restarting {task}", task = self.config.name);
+        self.state = TaskState::Waiting;
+        ControlFlow::Continue(())
     }
 
     fn wait_for_dependencies(&mut self, cx: &mut Context<'_>) -> Poll<()> {
@@ -215,6 +236,8 @@ impl<'a> Task<'a> {
     }
 
     async fn running(&mut self) {
+        let _s = info_span!("Running", task = self.config.name);
+        let _s = _s.enter();
         if let Some(child) = self.process.as_mut() {
             match child.status().await {
                 Ok(status) if status.success() => self.state = TaskState::Done,
@@ -261,6 +284,7 @@ pub struct TaskContext {
     waiters_running: Vec<Waker>,
     waiters_done: Vec<Waker>,
     pid: Option<NonZeroU32>,
+    respawn_attempts: usize,
     /// used to wake this task from the outside
     waker: Option<Waker>,
 }
@@ -269,14 +293,8 @@ impl TaskContext {
     pub fn update_state(&mut self, state: TaskState) {
         self.state = state;
         match self.state {
-            TaskState::Running => self
-                .waiters_running
-                .drain(..)
-                .for_each(|w| w.wake_by_ref()),
-            TaskState::Done => self
-                .waiters_done
-                .drain(..)
-                .for_each(|w| w.wake_by_ref()),
+            TaskState::Running => self.waiters_running.drain(..).for_each(|w| w.wake_by_ref()),
+            TaskState::Done => self.waiters_done.drain(..).for_each(|w| w.wake_by_ref()),
             _ => {}
         }
     }
