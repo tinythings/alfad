@@ -47,7 +47,7 @@ async fn wait_for_commands(context: ContextMap<'static>) {
         let mut pipe = match create_pipe().await {
             Ok(x) => x,
             Err(error) => {
-                error!("{error}");
+                error!("Could not create pipe: {error}");
                 smol::Timer::after(Duration::from_secs(10));
                 continue;
             }
@@ -72,7 +72,7 @@ async fn wait_for_commands(context: ContextMap<'static>) {
 async fn create_pipe() -> Result<BufReader<File>> {
     // let path = "/var/run/alfad";
     let path = "test/alfad-pipe";
-    remove_file(path)?;
+    remove_file(path).ok();
     mkfifo(path, stat::Mode::S_IRWXU)?;
     let file = smol::fs::OpenOptions::new().read(true).open(path).await?;
     Ok(BufReader::new(file))
