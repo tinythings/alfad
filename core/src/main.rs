@@ -70,8 +70,8 @@ async fn wait_for_commands(context: ContextMap<'static>) {
 }
 
 async fn create_pipe() -> Result<BufReader<File>> {
-    // let path = "/var/run/slimit";
-    let path = "test/slimit-pipe";
+    // let path = "/var/run/alfad";
+    let path = "test/alfad-pipe";
     remove_file(path)?;
     mkfifo(path, stat::Mode::S_IRWXU)?;
     let file = smol::fs::OpenOptions::new().read(true).open(path).await?;
