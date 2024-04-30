@@ -48,7 +48,7 @@ async fn wait_for_commands(context: ContextMap<'static>) {
             Ok(x) => x,
             Err(error) => {
                 error!("Could not create pipe: {error}");
-                smol::Timer::after(Duration::from_secs(10));
+                smol::Timer::after(Duration::from_secs(10)).await;
                 continue;
             }
         };
