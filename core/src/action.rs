@@ -12,6 +12,13 @@ pub enum Action {
         /// Send SIGKILL instead of SIGTERM
         force: bool,
     },
+    /// Kill a task
+    Deactivate {
+        task: String,
+        #[clap(long)]
+        /// Send SIGKILL instead of SIGTERM
+        force: bool,
+    },
     /// Start a task
     Start {
         task: String,
@@ -36,6 +43,8 @@ impl FromStr for Action {
             match action {
                 "kill" => Ok(Action::Kill { task, force: false }),
                 "force-kill" => Ok(Action::Kill { task, force: true }),
+                "deactivate" => Ok(Action::Kill { task, force: false }),
+                "force-deactivate" => Ok(Action::Kill { task, force: true }),
                 "restart" => Ok(Action::Restart { task, force: false }),
                 "force-restart" => Ok(Action::Restart { task, force: true }),
                 "start" => Ok(Action::Start { task, force: false }),
@@ -53,6 +62,8 @@ impl ToString for Action {
         match self {
             Action::Kill { task, force: false } => format!("kill {task}"),
             Action::Kill { task, force: true } => format!("force-kill {task}"),
+            Action::Deactivate { task, force: false } => format!("deactivate {task}"),
+            Action::Deactivate { task, force: true } => format!("force-deactivate {task}"),
             Action::Start { task, force: false } => format!("start {task}"),
             Action::Start { task, force: true } => format!("force-start {task}"),
             Action::Restart { task, force: false } => format!("restart {task}"),
