@@ -1,5 +1,5 @@
 name: bongo
-cmd: [echo, "hello from inside bongo"]
+cmd: echo "hello from inside bongo"
 after:
     - foo
     - bar

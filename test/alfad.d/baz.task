@@ -1,2 +1,2 @@
 name: baz
-cmd: [echo, "hello from inside baz"]
+cmd: echo "hello from inside baz"
