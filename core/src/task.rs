@@ -1,22 +1,29 @@
 use std::{
-    collections::HashMap, future::Future, num::NonZeroU32, ops::ControlFlow, path::Path, pin::{pin, Pin}, sync::Arc, task::{Context, Poll, Waker}
+    collections::HashMap,
+    fmt::Debug,
+    future::Future,
+    num::NonZeroU32,
+    ops::ControlFlow,
+    path::Path,
+    pin::{pin, Pin},
+    sync::Arc,
+    task::{Context, Poll, Waker},
 };
 
 use enum_display_derive::Display;
+
 use nix::{sys::signal::Signal, unistd::Pid};
 use smallvec::SmallVec;
 use std::fmt::Display;
 use tracing::{error, info, info_span, trace, warn};
 
-
 use serde::Deserialize;
-use smol::{
-    lock::RwLock,
-    process::{Child, Command},
-    ready,
-};
+use smol::{lock::RwLock, ready};
 
-use crate::config::OneOrMany;
+use crate::{
+    command_line::{Child, CommandLine, CommandLineError, CommandLines},
+    config::OneOrMany,
+};
 
 pub type ContextMap<'a> = &'static HashMap<&'a str, Arc<RwLock<TaskContext>>>;
 
@@ -49,7 +56,7 @@ pub enum Respawn {
     ///
     /// N = 0, restart this task an unlimited number of times
     // TODO: Does manual restart affect the counter, if so: how
-    Retry(usize)
+    Retry(usize),
 }
 
 impl Default for Respawn {
@@ -62,13 +69,16 @@ impl Default for Respawn {
 pub struct TaskConfig {
     pub name: String,
     #[serde(default)]
-    cmd: Vec<String>,
+    cmd: CommandLines,
     #[cfg(feature = "before")]
-    #[serde(default, deserialize_with = "OneOrMany::read")]
+    #[serde(default)]
+    #[serde(deserialize_with = "OneOrMany::read")]
     pub before: Vec<String>,
-    #[serde(default, deserialize_with = "OneOrMany::read")]
+    #[serde(default)]
+    #[serde(deserialize_with = "OneOrMany::read")]
     pub with: Vec<String>,
-    #[serde(default, deserialize_with = "OneOrMany::read")]
+    #[serde(default)]
+    #[serde(deserialize_with = "OneOrMany::read")]
     pub after: SmallVec<[String; 1]>,
     #[serde(default)]
     respawn: Respawn,
@@ -95,6 +105,7 @@ pub struct Task<'a> {
     pub context_map: &'a HashMap<&'a str, Arc<RwLock<TaskContext>>>,
     context: Arc<RwLock<TaskContext>>,
     pub process: Option<Child>,
+    cmd_index: usize,
 }
 
 impl Future for Task<'_> {
@@ -128,6 +139,7 @@ impl<'a> Task<'a> {
                 .expect("generated from the same list and must thus be in the context_map")
                 .clone(),
             process: None,
+            cmd_index: 0,
         }
     }
 
@@ -146,25 +158,22 @@ impl<'a> Task<'a> {
         loop {
             trace!(state = %self.state);
             use TaskState as S;
-            match self.state {
+            self.state = match self.state {
                 S::Waiting => {
-                    ready!(self.wait_for_dependencies(cx));
-                    self.state = S::Starting
+                    ready!(self.wait_for_dependencies(cx))
                 }
-                S::Starting => {
-                    ready!(pin!(self.perform()).poll(cx));
-                    self.state = S::Running;
-                }
-                S::Running => {
-                    ready!(pin!(self.running()).poll(cx));
+                S::Starting | S::Running => {
+                    ready!(pin!(self.running()).poll(cx))
                 }
                 S::Terminating => {
-                    ready!(pin!(self.wait_for_terminate()).poll(cx));
-                    self.state = S::Terminated
+                    ready!(pin!(self.wait_for_terminate()).poll(cx))
                 }
-                S::Failed | S::Terminated => {
-                    if ready!(pin!(self.respawn()).poll(cx)).is_break() {
-                        return Poll::Pending;
+                state @ (S::Failed | S::Terminated) => {
+                    match ready!(pin!(self.respawn(state)).poll(cx)) {
+                        ControlFlow::Continue(state) => state,
+                        ControlFlow::Break(_) => {
+                            return Poll::Pending;
+                        }
                     }
                 }
                 _ => return Poll::Pending,
@@ -172,32 +181,31 @@ impl<'a> Task<'a> {
         }
     }
 
-    async fn respawn(&mut self) -> ControlFlow<()> {
+    async fn respawn(&mut self, state: TaskState) -> ControlFlow<TaskState, TaskState> {
         match self.config.respawn {
-            Respawn::No => ControlFlow::Break(()),
+            Respawn::No => ControlFlow::Break(state),
             Respawn::Retry(amount) => self.respawn_inner(amount).await,
         }
     }
 
-    async fn respawn_inner(&mut self, amount: usize) -> ControlFlow<()> {
+    async fn respawn_inner(&mut self, amount: usize) -> ControlFlow<TaskState, TaskState> {
         if amount != 0 {
             let attempts = self.context.read().await.respawn_attempts;
             if attempts >= amount {
                 info!("Deactivating {task}", task = self.config.name);
-                self.state = TaskState::Deactivated;
-                return ControlFlow::Break(());
+                return ControlFlow::Break(TaskState::Deactivated);
             }
             self.context.write().await.respawn_attempts += 1;
         }
         info!("Restarting {task}", task = self.config.name);
-        self.state = TaskState::Waiting;
-        ControlFlow::Continue(())
+        self.cmd_index = 0;
+        ControlFlow::Continue(TaskState::Waiting)
     }
 
-    fn wait_for_dependencies(&mut self, cx: &mut Context<'_>) -> Poll<()> {
+    fn wait_for_dependencies(&mut self, cx: &mut Context<'_>) -> Poll<TaskState> {
         ready!(self.wait_for(self.config.after.iter(), TaskState::Done, cx));
         ready!(self.wait_for(self.config.with.iter(), TaskState::Running, cx));
-        Poll::Ready(())
+        Poll::Ready(TaskState::Starting)
     }
 
     fn wait_for<'b>(
@@ -235,40 +243,64 @@ impl<'a> Task<'a> {
         Poll::Ready(())
     }
 
-    async fn running(&mut self) {
+    async fn running(&mut self) -> TaskState {
         let _s = info_span!("Running", task = self.config.name);
         let _s = _s.enter();
-        if let Some(child) = self.process.as_mut() {
-            match child.status().await {
-                Ok(status) if status.success() => self.state = TaskState::Done,
-                _ if self.state == TaskState::Terminating => self.state = TaskState::Terminated,
-                status => {
-                    self.state = TaskState::Failed;
-                    error!(exit = ?status);
+
+        loop {
+            self.state = TaskState::Running;
+            if let Some(command) = self.config.cmd.get(self.cmd_index) {
+                let state = self.run_command(command).await;
+                if matches!(state, TaskState::Failed | TaskState::Terminated) {
+                    return state;
                 }
+                self.cmd_index += 1;
+            } else {
+                break;
             }
-        } else {
-            self.state = TaskState::Done;
         }
+        TaskState::Done
     }
 
-    async fn wait_for_terminate(&mut self) {
+    async fn run_command(&mut self, command: &CommandLine) -> TaskState {
+        let child = match self.process.as_mut() {
+            Some(child) => child,
+            None => {
+                let child = match command.spawn() {
+                    Ok(c) => c,
+                    Err(CommandLineError::EmptyCommand) => return TaskState::Done,
+                    Err(_) => {
+                        return TaskState::Failed;
+                    }
+                };
+                let pid = child.id();
+                self.context.write().await.pid = NonZeroU32::new(pid);
+                self.process = Some(child);
+                self.process.as_mut().unwrap()
+            }
+        };
+
+        match child.status().await {
+            _ if self.state == TaskState::Terminating => self.state = TaskState::Terminated,
+            Ok(status) if status.success() => self.state = TaskState::Done,
+            status => {
+                error!(exit = ?status);
+                return TaskState::Failed;
+            }
+        }
+        self.context.write().await.pid = None;
+        self.process = None;
+        TaskState::Done
+    }
+
+    async fn wait_for_terminate(&mut self) -> TaskState {
         if let Some(child) = self.process.as_mut() {
             child.status().await.ok();
+            self.state = TaskState::Terminated;
+            self.context.write().await.pid = None;
+            self.process = None;
         }
-    }
-
-    async fn perform(&mut self) {
-        let mut args = self.config.cmd.iter();
-        if let Some(program) = args.next() {
-            match Command::new(program).args(args).spawn() {
-                Ok(p) => {
-                    self.context.write().await.pid = NonZeroU32::new(p.id());
-                    self.process = Some(p);
-                }
-                Err(error) => error!("{error}"),
-            }
-        }
+        TaskState::Terminated
     }
 
     async fn propagate_state(&mut self) {
