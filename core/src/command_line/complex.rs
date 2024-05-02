@@ -18,7 +18,7 @@ pub struct CommandLine {
 const MAX_ENVVAR_RECURSION: usize = 100;
 
 lazy_static! {
-    static ref FIND_ENVVAR: Regex = Regex::new(r"\$(\w+)").unwrap();
+    static ref FIND_ENVVAR: Regex = Regex::new(r"\$([_a-zA-Z0-9]+)").unwrap();
 }
 
 #[derive(Debug, Error)]
