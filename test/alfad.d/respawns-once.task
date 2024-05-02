@@ -1,3 +1,3 @@
 name: respawns-once
 respawn: 1
-cmd: [false]
+cmd: "false"

@@ -1,3 +1,2 @@
 name: waits-for-ever
-with:
-    - i-do-not-exist
+with: i-do-not-exist

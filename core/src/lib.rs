@@ -3,3 +3,4 @@ pub mod config;
 pub mod task;
 pub mod ordering;
 pub mod validate;
+pub mod command_line;

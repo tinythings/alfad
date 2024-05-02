@@ -4,6 +4,7 @@ pub mod ordering;
 mod perform_action;
 pub mod task;
 mod validate;
+pub mod command_line;
 
 use anyhow::Result;
 use config::read_config;

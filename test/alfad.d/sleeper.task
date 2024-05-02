@@ -1,2 +1,2 @@
 name: sleeper
-cmd: [sleep, 1000]
+cmd: sleep 1000
