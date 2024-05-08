@@ -15,7 +15,7 @@ use enum_display_derive::Display;
 use nix::{sys::signal::Signal, unistd::Pid};
 use smallvec::SmallVec;
 use std::fmt::Display;
-use tracing::{error, info, info_span, trace, warn};
+use tracing::{debug, error, info, info_span, trace, warn};
 
 use serde::Deserialize;
 use smol::{lock::RwLock, ready};
@@ -104,7 +104,7 @@ pub struct Task<'a> {
     pub config: &'a TaskConfig,
     pub context_map: &'a HashMap<&'a str, Arc<RwLock<TaskContext>>>,
     context: Arc<RwLock<TaskContext>>,
-    pub process: Option<Child>,
+    pub process: Option<Child>
 }
 
 impl Future for Task<'_> {
@@ -121,19 +121,23 @@ macro_rules! wait_for {
         let inner = |cx: &mut Context| -> Poll<()> {
             for name in $s.config.$queue.iter() {
                 if let Some(other) = $s.context_map.get(name.as_str()) {
-                    {
-                        let context = ready!(pin!(other.read()).poll(cx));
+                    let r = smol::block_on(async {
+                        let mut context = other.write().await;
                         if matches!(context.state, $state) {
-                            continue;
+                            trace!("'{name}' is ready");
+                            true
+                        } else {
+                            context.$queue.push(cx.waker().clone());
+                            false
                         }
-                    }
-                    let mut context = ready!(pin!(other.write()).poll(cx));
-                    context.$queue.push(cx.waker().clone());
+                    });
+                    if r {
+                        continue;
+                    } else {
+                        info!("'{}' waiting for '{name}' to be {}", $s.config.name, $dsp);
+                        return Poll::Pending
+                    }    
 
-                    info!(
-                        "'{}' waiting for '{name}' to be {}",
-                        $s.config.name, $dsp
-                    );
                 } else {
                     warn!(
                         "'{}' is waiting for '{}', which does not exist, and will never run",
@@ -141,8 +145,6 @@ macro_rules! wait_for {
                     );
                     return Poll::Pending;
                 }
-
-                return Poll::Pending;
             }
             Poll::Ready(())
         };
@@ -177,6 +179,9 @@ impl<'a> Task<'a> {
     }
 
     fn poll_internal(&mut self, cx: &mut Context<'_>) -> Poll<()> {
+        let _s = info_span!("Driving", task = self.config.name);
+        let _s = _s.enter();
+
         let mut context = ready!(pin!(self.context.write()).poll(cx));
         let state = context.state;
         if let Some(waker) = context.waker.as_mut() {
@@ -189,7 +194,7 @@ impl<'a> Task<'a> {
 
         self.state = state;
         loop {
-            trace!(state = %self.state);
+            trace!(state = ?self.state);
             use TaskState as S;
             self.state = match self.state {
                 S::Waiting => {
