@@ -1,5 +1,9 @@
 use std::{
-    env, ops::{Deref, DerefMut}, process::ExitStatus, slice::Iter, str::FromStr
+    env,
+    ops::{Deref, DerefMut},
+    process::ExitStatus,
+    slice::Iter,
+    str::FromStr,
 };
 
 use lazy_static::lazy_static;
@@ -133,6 +137,18 @@ impl<'de> Deserialize<'de> for CommandLines {
     }
 }
 
+impl FromStr for CommandLines {
+    type Err = CommandLineError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(CommandLines(
+            s.lines()
+                .map(CommandLine::from_str)
+                .collect::<Result<Vec<_>, _>>()?,
+        ))
+    }
+}
+
 impl<'de> Visitor<'de> for CommandLineVisitor {
     type Value = CommandLines;
 
@@ -160,14 +176,13 @@ pub struct Child(smol::process::Child, bool);
 
 impl Child {
     pub async fn status(&mut self) -> Result<ExitStatus, std::io::Error> {
-
         let exit = self.0.status().await;
         if self.1 {
             return Ok(ExitStatus::default());
         }
         exit
     }
-    
+
     pub(crate) fn id(&self) -> u32 {
         self.0.id()
     }
@@ -178,7 +193,7 @@ mod test {
     use std::env;
 
     use super::insert_envvars;
-    // WARNING: All ENVVARS must have unique names since the test might run 
+    // WARNING: All ENVVARS must have unique names since the test might run
     // in parallel inside one process which could cause race conditions
 
     #[test]
@@ -199,7 +214,8 @@ mod test {
     fn replace_multiple() {
         env::set_var("TEST_VAR_MULTIPLE_1", "foo");
         env::set_var("TEST_VAR_MULTIPLE_2", "bar");
-        let r = insert_envvars("$TEST_VAR_MULTIPLE_1 $TEST_VAR_MULTIPLE_2 $TEST_VAR_MULTIPLE_1").unwrap();
+        let r = insert_envvars("$TEST_VAR_MULTIPLE_1 $TEST_VAR_MULTIPLE_2 $TEST_VAR_MULTIPLE_1")
+            .unwrap();
         assert_eq!(r, "foo bar foo");
     }
 

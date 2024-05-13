@@ -1,13 +1,5 @@
 use std::{
-    collections::HashMap,
-    fmt::Debug,
-    future::Future,
-    num::NonZeroU32,
-    ops::ControlFlow,
-    path::Path,
-    pin::{pin, Pin},
-    sync::Arc,
-    task::{Context, Poll, Waker},
+    collections::HashMap, fmt::Debug, future::Future, num::NonZeroU32, ops::ControlFlow, path::Path, pin::{pin, Pin}, sync::Arc, task::{Context, Poll, Waker}
 };
 
 use enum_display_derive::Display;
@@ -15,7 +7,7 @@ use enum_display_derive::Display;
 use nix::{sys::signal::Signal, unistd::Pid};
 use smallvec::SmallVec;
 use std::fmt::Display;
-use tracing::{debug, error, info, info_span, trace, warn};
+use tracing::{error, info, info_span, trace, warn};
 
 use serde::Deserialize;
 use smol::{lock::RwLock, ready};
@@ -69,7 +61,7 @@ impl Default for Respawn {
 pub struct TaskConfig {
     pub name: String,
     #[serde(default)]
-    cmd: CommandLines,
+    pub cmd: CommandLines,
     #[cfg(feature = "before")]
     #[serde(default)]
     #[serde(deserialize_with = "OneOrMany::read")]
@@ -81,7 +73,7 @@ pub struct TaskConfig {
     #[serde(deserialize_with = "OneOrMany::read")]
     pub after: SmallVec<[String; 1]>,
     #[serde(default)]
-    respawn: Respawn,
+    pub respawn: Respawn,
     pub group: Option<String>,
 }
 
@@ -104,7 +96,7 @@ pub struct Task<'a> {
     pub config: &'a TaskConfig,
     pub context_map: &'a HashMap<&'a str, Arc<RwLock<TaskContext>>>,
     context: Arc<RwLock<TaskContext>>,
-    pub process: Option<Child>
+    pub process: Option<Child>,
 }
 
 impl Future for Task<'_> {
@@ -135,9 +127,8 @@ macro_rules! wait_for {
                         continue;
                     } else {
                         info!("'{}' waiting for '{name}' to be {}", $s.config.name, $dsp);
-                        return Poll::Pending
-                    }    
-
+                        return Poll::Pending;
+                    }
                 } else {
                     warn!(
                         "'{}' is waiting for '{}', which does not exist, and will never run",
