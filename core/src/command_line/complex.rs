@@ -6,11 +6,10 @@ use std::{
     str::FromStr,
 };
 
-use itertools::Itertools;
+
 use lazy_static::lazy_static;
 use regex::{Captures, Regex};
 use serde::{
-    de::{MapAccess, Visitor},
     Deserialize, Serialize,
 };
 use smol::process::Command;
@@ -131,17 +130,6 @@ impl DerefMut for CommandLines {
     }
 }
 
-struct CommandLineVisitor;
-
-// impl<'de> Deserialize<'de> for CommandLines {
-//     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-//     where
-//         D: serde::Deserializer<'de>,
-//     {
-//         deserializer.deserialize_any(CommandLineVisitor)
-//     }
-// }
-
 impl FromStr for CommandLines {
     type Err = CommandLineError;
 
@@ -153,49 +141,6 @@ impl FromStr for CommandLines {
         ))
     }
 }
-
-// impl<'de> Visitor<'de> for CommandLineVisitor {
-//     type Value = CommandLines;
-
-//     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-//         formatter.write_str("multiline string consisting of one valid command per line")
-//     }
-
-//     fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-//     where
-//         E: serde::de::Error,
-//     {
-//         let x = v
-//             .lines()
-//             .map(str::trim)
-//             .map(CommandLine::from_str)
-//             .collect::<Result<_, CommandLineError>>();
-//         match x {
-//             Ok(list) => Ok(CommandLines(list)),
-//             Err(e) => Err(E::custom(e)),
-//         }
-//     }
-// }
-
-// impl Serialize for CommandLines {
-//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-//     where
-//         S: serde::Serializer {
-
-//             let s = self.0.iter().map(|CommandLine { ignore_env, ignore_return, args }| {
-//                 let mut s = String::new();
-//                 if *ignore_env {
-//                     s.push(':');
-//                 }
-//                 if *ignore_return {
-//                     s.push('-');
-//                 }
-//                 s.push_str(&args.join(" "));
-//                 s
-//             }).join("\n");
-//             serializer.serialize_str(&s)
-//     }
-// }
 
 pub struct Child(smol::process::Child, bool);
 

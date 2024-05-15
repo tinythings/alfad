@@ -5,17 +5,14 @@ use std::{
 use enum_display_derive::Display;
 
 use nix::{sys::signal::Signal, unistd::Pid};
-use smallvec::SmallVec;
+
 use std::fmt::Display;
 use tracing::{error, info, info_span, trace, warn};
 
 use serde::{Deserialize, Serialize};
 use smol::{lock::RwLock, ready};
 
-use crate::{
-    command_line::{self, Child, CommandLine, CommandLineError, CommandLines},
-    config::OneOrMany,
-};
+use crate::command_line::{Child, CommandLine, CommandLineError, CommandLines};
 
 pub type ContextMap<'a> = &'static HashMap<&'a str, Arc<RwLock<TaskContext>>>;
 

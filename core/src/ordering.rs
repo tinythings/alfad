@@ -64,7 +64,7 @@ pub fn sort(configs: Vec<TaskConfig>) -> Vec<TaskConfig> {
         }
 
         // Move groups to the back of the list because they must always wait
-        if t.name.starts_with("~") {
+        if t.name.starts_with('~') {
             continue;
         }
 
@@ -82,7 +82,7 @@ pub fn sort(configs: Vec<TaskConfig>) -> Vec<TaskConfig> {
         }
     }
     let mut res = no_deps.into_iter().flat_map(|x| map.remove(&x)).collect_vec();
-    res.extend(sorter.into_iter().flat_map(|x| map.remove(&x)));
+    res.extend(sorter.flat_map(|x| map.remove(&x)));
 
     // Add all cyclical and orphaned tasks to the end, we may still want to force start them
     res.extend(map.into_values());

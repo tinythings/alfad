@@ -1,4 +1,3 @@
-use itertools::Itertools;
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 use smallvec::{smallvec, SmallVec};
 use smol::stream::StreamExt;
