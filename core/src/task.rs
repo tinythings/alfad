@@ -1,13 +1,5 @@
 use std::{
-    collections::HashMap,
-    fmt::Debug,
-    future::Future,
-    num::NonZeroU32,
-    ops::ControlFlow,
-    path::Path,
-    pin::{pin, Pin},
-    sync::Arc,
-    task::{Context, Poll, Waker},
+    collections::HashMap, fmt::Debug, future::Future, num::NonZeroU32, ops::ControlFlow, path::Path, pin::{pin, Pin}, sync::Arc, task::{Context, Poll, Waker}
 };
 
 use enum_display_derive::Display;
@@ -31,7 +23,7 @@ pub type ContextMap<'a> = &'static HashMap<&'a str, Arc<RwLock<TaskContext>>>;
 pub enum TaskState {
     Waiting,
     Starting,
-    Running,
+    Running(usize),
     Done,
     Failed,
     Terminating,
@@ -69,7 +61,7 @@ impl Default for Respawn {
 pub struct TaskConfig {
     pub name: String,
     #[serde(default)]
-    cmd: CommandLines,
+    pub cmd: CommandLines,
     #[cfg(feature = "before")]
     #[serde(default)]
     #[serde(deserialize_with = "OneOrMany::read")]
@@ -81,7 +73,7 @@ pub struct TaskConfig {
     #[serde(deserialize_with = "OneOrMany::read")]
     pub after: SmallVec<[String; 1]>,
     #[serde(default)]
-    respawn: Respawn,
+    pub respawn: Respawn,
     pub group: Option<String>,
 }
 
@@ -105,7 +97,6 @@ pub struct Task<'a> {
     pub context_map: &'a HashMap<&'a str, Arc<RwLock<TaskContext>>>,
     context: Arc<RwLock<TaskContext>>,
     pub process: Option<Child>,
-    cmd_index: usize,
 }
 
 impl Future for Task<'_> {
@@ -115,6 +106,42 @@ impl Future for Task<'_> {
         ready!(pin!(self.propagate_state()).poll(cx));
         p
     }
+}
+
+macro_rules! wait_for {
+    ($s:path, $queue:ident, $state:pat, $cx:ident, $dsp:literal) => {{
+        let inner = |cx: &mut Context| -> Poll<()> {
+            for name in $s.config.$queue.iter() {
+                if let Some(other) = $s.context_map.get(name.as_str()) {
+                    let r = smol::block_on(async {
+                        let mut context = other.write().await;
+                        if matches!(context.state, $state) {
+                            trace!("'{name}' is ready");
+                            true
+                        } else {
+                            context.$queue.push(cx.waker().clone());
+                            false
+                        }
+                    });
+                    if r {
+                        continue;
+                    } else {
+                        info!("'{}' waiting for '{name}' to be {}", $s.config.name, $dsp);
+                        return Poll::Pending;
+                    }
+                } else {
+                    warn!(
+                        "'{}' is waiting for '{}', which does not exist, and will never run",
+                        $s.config.name, name
+                    );
+                    return Poll::Pending;
+                }
+            }
+            Poll::Ready(())
+        };
+
+        inner($cx)
+    }};
 }
 
 impl<'a> Task<'a> {
@@ -139,11 +166,13 @@ impl<'a> Task<'a> {
                 .expect("generated from the same list and must thus be in the context_map")
                 .clone(),
             process: None,
-            cmd_index: 0,
         }
     }
 
     fn poll_internal(&mut self, cx: &mut Context<'_>) -> Poll<()> {
+        let _s = info_span!("Driving", task = self.config.name);
+        let _s = _s.enter();
+
         let mut context = ready!(pin!(self.context.write()).poll(cx));
         let state = context.state;
         if let Some(waker) = context.waker.as_mut() {
@@ -156,14 +185,15 @@ impl<'a> Task<'a> {
 
         self.state = state;
         loop {
-            trace!(state = %self.state);
+            trace!(state = ?self.state);
             use TaskState as S;
             self.state = match self.state {
                 S::Waiting => {
                     ready!(self.wait_for_dependencies(cx))
                 }
-                S::Starting | S::Running => {
-                    ready!(pin!(self.running()).poll(cx))
+                S::Starting => S::Running(0),
+                S::Running(x) => {
+                    ready!(pin!(self.running(x)).poll(cx))
                 }
                 S::Terminating => {
                     ready!(pin!(self.wait_for_terminate()).poll(cx))
@@ -198,68 +228,28 @@ impl<'a> Task<'a> {
             self.context.write().await.respawn_attempts += 1;
         }
         info!("Restarting {task}", task = self.config.name);
-        self.cmd_index = 0;
         ControlFlow::Continue(TaskState::Waiting)
     }
 
     fn wait_for_dependencies(&mut self, cx: &mut Context<'_>) -> Poll<TaskState> {
-        ready!(self.wait_for(self.config.after.iter(), TaskState::Done, cx));
-        ready!(self.wait_for(self.config.with.iter(), TaskState::Running, cx));
+        ready!(wait_for!(self, after, TaskState::Done, cx, "Done"));
+        ready!(wait_for!(self, with, TaskState::Running(_), cx, "Running"));
         Poll::Ready(TaskState::Starting)
     }
 
-    fn wait_for<'b>(
-        &mut self,
-        list: impl IntoIterator<Item = &'b String>,
-        state: TaskState,
-        cx: &mut Context<'_>,
-    ) -> Poll<()> {
-        for name in list {
-            if let Some(other) = self.context_map.get(name.as_str()) {
-                {
-                    let context = ready!(pin!(other.read()).poll(cx));
-                    if context.state == state {
-                        continue;
-                    }
-                }
-                let mut context = ready!(pin!(other.write()).poll(cx));
-                match state {
-                    TaskState::Running => context.waiters_running.push(cx.waker().clone()),
-                    TaskState::Done => context.waiters_done.push(cx.waker().clone()),
-                    _ => {}
-                }
-
-                info!("'{}' waiting for '{name}' to be {state}", self.config.name);
-            } else {
-                warn!(
-                    "'{}' is waiting for '{}', which does not exist, and will never run",
-                    self.config.name, name
-                );
-                return Poll::Pending;
-            }
-
-            return Poll::Pending;
-        }
-        Poll::Ready(())
-    }
-
-    async fn running(&mut self) -> TaskState {
+    async fn running(&mut self, x: usize) -> TaskState {
         let _s = info_span!("Running", task = self.config.name);
         let _s = _s.enter();
 
-        loop {
-            self.state = TaskState::Running;
-            if let Some(command) = self.config.cmd.get(self.cmd_index) {
-                let state = self.run_command(command).await;
-                if matches!(state, TaskState::Failed | TaskState::Terminated) {
-                    return state;
-                }
-                self.cmd_index += 1;
-            } else {
-                break;
+        if let Some(command) = self.config.cmd.get(x) {
+            let state = self.run_command(command).await;
+            if matches!(state, TaskState::Failed | TaskState::Terminated) {
+                return state;
             }
+            TaskState::Running(x + 1)
+        } else {
+            TaskState::Done
         }
-        TaskState::Done
     }
 
     async fn run_command(&mut self, command: &CommandLine) -> TaskState {
@@ -313,8 +303,8 @@ impl<'a> Task<'a> {
 #[derive(Debug, Default)]
 pub struct TaskContext {
     state: TaskState,
-    waiters_running: Vec<Waker>,
-    waiters_done: Vec<Waker>,
+    with: Vec<Waker>,
+    after: Vec<Waker>,
     pid: Option<NonZeroU32>,
     respawn_attempts: usize,
     /// used to wake this task from the outside
@@ -325,8 +315,8 @@ impl TaskContext {
     pub fn update_state(&mut self, state: TaskState) {
         self.state = state;
         match self.state {
-            TaskState::Running => self.waiters_running.drain(..).for_each(|w| w.wake_by_ref()),
-            TaskState::Done => self.waiters_done.drain(..).for_each(|w| w.wake_by_ref()),
+            TaskState::Running(_) => self.with.drain(..).for_each(|w| w.wake_by_ref()),
+            TaskState::Done => self.after.drain(..).for_each(|w| w.wake_by_ref()),
             _ => {}
         }
     }

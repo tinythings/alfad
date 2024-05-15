@@ -8,8 +8,7 @@ pub mod command_line;
 
 use anyhow::Result;
 use config::read_config;
-use nix::{sys::stat, unistd::mkfifo};
-use std::{fs::remove_file, time::Duration};
+use std::{env, path::Path, time::Duration};
 use tracing::{error, info, Level};
 use tracing_subscriber::FmtSubscriber;
 
@@ -21,10 +20,10 @@ use task::{ContextMap, Task};
 
 #[allow(dead_code)]
 static VERSION: &str = "0.1";
-
 fn main() {
+    env::set_var("SMOL_THREADS", "8");
     let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::DEBUG)
+        .with_max_level(Level::INFO)
         .finish();
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
@@ -71,10 +70,12 @@ async fn wait_for_commands(context: ContextMap<'static>) {
 }
 
 async fn create_pipe() -> Result<BufReader<File>> {
-    // let path = "/var/run/alfad";
-    let path = "test/alfad-pipe";
-    remove_file(path).ok();
-    mkfifo(path, stat::Mode::S_IRWXU)?;
-    let file = smol::fs::OpenOptions::new().read(true).open(path).await?;
+    let dir = if cfg!(debug_assertions) {
+        "test"
+    } else {
+        "/run/var"
+    };
+    let path = Path::new(dir).join("alfad-ctl");
+    let file = smol::fs::OpenOptions::new().read(true).open(&path).await?;
     Ok(BufReader::new(file))
 }

@@ -1,44 +1,47 @@
 use serde::{de::DeserializeOwned, Deserialize, Deserializer};
 use smallvec::{smallvec, Array, SmallVec};
+use smol::stream::StreamExt;
 use std::{
-    error::Error,
-    fs::{read_dir, OpenOptions},
+    error::Error, fs::{read_dir, OpenOptions}, str::FromStr
 };
-use tracing::debug;
+use tracing::{debug, info_span};
 
 use crate::{
-    ordering::{construct_groups, resolve_before},
-    task::TaskConfig,
-    validate,
+    command_line::CommandLines, ordering::{construct_groups, resolve_before}, task::TaskConfig, validate
 };
 use tracing::{error, instrument};
 
 #[instrument]
 pub fn read_config() -> Vec<TaskConfig> {
-    // let span = info_span!("Parsing task files");
-    // let _span = span.enter();
-    let dir = if cfg!(profile = "release") {
-        "/etc/alfad/alfad.d"
-    } else {
+    let span = info_span!("Parsing task files");
+    let _span = span.enter();
+    let dir = if cfg!(debug_assertions) {
         "test/alfad.d"
+    } else {
+        // "test/alfad.d"
+        "/etc/alfad/alfad.d"
     };
-
+    
     let dir_reader = match read_dir(dir) {
         Ok(rd) => rd,
         Err(error) => {
-            error!("Could not read config directory {dir}: {}", error);
+            error!("Could not read config directory {dir:?}: {}", error);
             return Vec::new();
         }
     };
-    let mut configs: Vec<_> = dir_reader
-        .filter_map(drop_errors)
-        .map(|file| OpenOptions::new().read(true).open(file.path()))
-        .filter_map(drop_errors)
-        .map(serde_yaml::from_reader)
-        .filter_map(drop_errors)
-        .inspect(|config: &TaskConfig| debug!("{config:?}"))
-        .collect();
+    let mut configs: Vec<_> = smol::block_on(async {
+        smol::stream::iter(dir_reader)
+            .filter_map(drop_errors)
+            .map(|file| OpenOptions::new().read(true).open(file.path()))
+            .filter_map(drop_errors)
+            .map(serde_yaml::from_reader)
+            .filter_map(drop_errors)
+            .inspect(|config: &TaskConfig| debug!("{config:?}"))
+            .collect()
+            .await
+    });
 
+    configs.extend(get_built_in());
     let groups = construct_groups(&configs);
     configs.extend(groups);
 
@@ -48,7 +51,7 @@ pub fn read_config() -> Vec<TaskConfig> {
     #[cfg(feature = "validate")]
     let configs = validate::validate(configs);
 
-    // drop(_span);
+    drop(_span);
     configs
 }
 
@@ -101,6 +104,16 @@ where
     }
 }
 
+fn get_built_in() -> Vec<TaskConfig> {
+    vec![TaskConfig {
+        name: "builtin:create-alfad-ctl".to_string(),
+        cmd: CommandLines::from_str("mkdir -p /run/var\nmkfifo /run/var/alfad-ctl").unwrap(),
+        after: smallvec!["mount-sys-fs".to_owned()],
+        ..Default::default()
+    }]
+}
+
+
 #[cfg(test)]
 mod test {
     use serde::Deserialize;
@@ -113,7 +126,8 @@ mod test {
         serde_yaml::from_str::<OneOrMany<String, Vec<String>>>("one").unwrap();
         serde_yaml::from_str::<OneOrMany<String, Vec<String>>>("[one, two, three]").unwrap();
         serde_yaml::from_str::<OneOrMany<String, SmallVec<[String; 2]>>>("one").unwrap();
-        serde_yaml::from_str::<OneOrMany<String, SmallVec<[String; 2]>>>("[one, two, three]").unwrap();
+        serde_yaml::from_str::<OneOrMany<String, SmallVec<[String; 2]>>>("[one, two, three]")
+            .unwrap();
     }
 
     #[test]
@@ -121,14 +135,17 @@ mod test {
         #[derive(Deserialize)]
         struct Test {
             #[serde(deserialize_with = "OneOrMany::read")]
-            _after: Vec<String>
+            _after: Vec<String>,
         }
-        serde_yaml::from_str::<Test>(r#"
+        serde_yaml::from_str::<Test>(
+            r#"
         name: bar
         cmd: [echo, "hello from inside bar"]
         _after: 
             - foo
             - bar
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
     }
 }

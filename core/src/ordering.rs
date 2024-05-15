@@ -43,5 +43,5 @@ pub fn resolve_before(configs: Vec<TaskConfig>) -> Vec<TaskConfig> {
                 ),
             });
     }
-    map.into_values().map(|x| x.take()).collect()
+    map.into_values().map(RefCell::into_inner).collect()
 }
