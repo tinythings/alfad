@@ -1,18 +1,21 @@
 use std::{
     env,
     ops::{Deref, DerefMut},
-    process::ExitStatus,
+    process::{ExitStatus, Stdio},
     slice::Iter,
     str::FromStr,
 };
 
+
 use lazy_static::lazy_static;
 use regex::{Captures, Regex};
-use serde::{de::Visitor, Deserialize};
+use serde::{
+    Deserialize, Serialize,
+};
 use smol::process::Command;
 use thiserror::Error;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CommandLine {
     ignore_env: bool,
     ignore_return: bool,
@@ -49,6 +52,7 @@ impl CommandLine {
         let mut args = self.to_args()?.into_iter();
         let program = args.next().ok_or(CommandLineError::EmptyCommand)?;
         let mut command = Command::new(program);
+        command.stderr(Stdio::inherit()).stdout(Stdio::inherit());
         command.args(args);
         if self.ignore_env {
             command.env_clear();
@@ -99,7 +103,7 @@ fn insert_envvars(s: &str) -> Result<String, CommandLineError> {
     Err(CommandLineError::MaximumRecursion)
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct CommandLines(Vec<CommandLine>);
 
 impl<'a> IntoIterator for &'a CommandLines {
@@ -126,17 +130,6 @@ impl DerefMut for CommandLines {
     }
 }
 
-struct CommandLineVisitor;
-
-impl<'de> Deserialize<'de> for CommandLines {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserializer.deserialize_any(CommandLineVisitor)
-    }
-}
-
 impl FromStr for CommandLines {
     type Err = CommandLineError;
 
@@ -146,29 +139,6 @@ impl FromStr for CommandLines {
                 .map(CommandLine::from_str)
                 .collect::<Result<Vec<_>, _>>()?,
         ))
-    }
-}
-
-impl<'de> Visitor<'de> for CommandLineVisitor {
-    type Value = CommandLines;
-
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("multiline string consisting of one valid command per line")
-    }
-
-    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        let x = v
-            .lines()
-            .map(str::trim)
-            .map(CommandLine::from_str)
-            .collect::<Result<_, CommandLineError>>();
-        match x {
-            Ok(list) => Ok(CommandLines(list)),
-            Err(e) => Err(E::custom(e)),
-        }
     }
 }
 
