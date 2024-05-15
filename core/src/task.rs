@@ -9,11 +9,11 @@ use smallvec::SmallVec;
 use std::fmt::Display;
 use tracing::{error, info, info_span, trace, warn};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use smol::{lock::RwLock, ready};
 
 use crate::{
-    command_line::{Child, CommandLine, CommandLineError, CommandLines},
+    command_line::{self, Child, CommandLine, CommandLineError, CommandLines},
     config::OneOrMany,
 };
 
@@ -39,8 +39,7 @@ impl Default for TaskState {
     }
 }
 
-#[derive(Debug, Deserialize, PartialEq, Eq)]
-#[serde(untagged)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub enum Respawn {
     /// Never retry this task (default)
     No,
@@ -57,22 +56,16 @@ impl Default for Respawn {
     }
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct TaskConfig {
     pub name: String,
-    #[serde(default)]
+    // #[serde(default)]
     pub cmd: CommandLines,
-    #[cfg(feature = "before")]
-    #[serde(default)]
-    #[serde(deserialize_with = "OneOrMany::read")]
-    pub before: Vec<String>,
-    #[serde(default)]
-    #[serde(deserialize_with = "OneOrMany::read")]
+    // #[serde(default)]
     pub with: Vec<String>,
-    #[serde(default)]
-    #[serde(deserialize_with = "OneOrMany::read")]
-    pub after: SmallVec<[String; 1]>,
-    #[serde(default)]
+    // #[serde(default)]
+    pub after: Vec<String>,
+    // #[serde(default)]
     pub respawn: Respawn,
     pub group: Option<String>,
 }
@@ -150,6 +143,7 @@ impl<'a> Task<'a> {
     }
 
     pub fn spawn(config: &'static TaskConfig, context_map: ContextMap<'static>) {
+        info!("Spawning {}", config.name);
         smol::spawn(async move { Self::new(config, context_map).await }).detach()
     }
 
@@ -259,7 +253,8 @@ impl<'a> Task<'a> {
                 let child = match command.spawn() {
                     Ok(c) => c,
                     Err(CommandLineError::EmptyCommand) => return TaskState::Done,
-                    Err(_) => {
+                    Err(e) => {
+                        error!(%e);
                         return TaskState::Failed;
                     }
                 };

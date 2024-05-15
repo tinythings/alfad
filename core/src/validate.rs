@@ -37,7 +37,7 @@ fn has_loop(name: String, map: &HashMap<String, Vec<String>>, visited: &[String]
     if let Some(list) = map.get(&name) {
         list.iter().any(|b| has_loop(b.clone(), map, &visited))
     } else {
-        error!("No command named {name}");
+        error!("No task named {name}");
         false
     }
 }

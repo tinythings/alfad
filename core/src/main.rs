@@ -18,15 +18,16 @@ use smol::{
 };
 use task::{ContextMap, Task};
 
-#[allow(dead_code)]
-static VERSION: &str = "0.1";
+
+pub static VERSION: &str = "0.1";
 fn main() {
     env::set_var("SMOL_THREADS", "8");
     let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::INFO)
+        .with_max_level(Level::WARN)
         .finish();
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
+    info!("Starting alfad");
     let configs = Box::leak(Box::new(read_config()));
     let context: ContextMap = Box::leak(Box::new(
         configs
@@ -34,7 +35,7 @@ fn main() {
             .map(|config| (config.name.as_str(), Default::default()))
             .collect(),
     ));
-
+    info!("Done parsing");
     configs
         .iter()
         .for_each(|config| Task::spawn(config, context));
