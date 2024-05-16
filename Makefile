@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := build
 
-ARC_VERSION := $(shell cat src/main.rs | grep 'static VERSION' | sed -e 's/.*=//g' -e 's/[" ;]//g')
-ARC_NAME := alfad-${ARC_VERSION}
+ARC_VERSION := $(shell cat core/src/main.rs | grep 'static VERSION' | sed -e 's/.*=//g' -e 's/[" ;]//g')
+ARC_NAME := alphad-${ARC_VERSION}
 
 .PHONY:build
 dev: man
@@ -26,8 +26,12 @@ tar:
 	cp Cargo.lock package/${ARC_NAME}
 	cp Cargo.toml package/${ARC_NAME}
 	cp Makefile package/${ARC_NAME}
-	cp -a docs package/${ARC_NAME}
-	cp -a src package/${ARC_NAME}
+	cp -a etc package/${ARC_NAME}
+	cp -a ctl package/${ARC_NAME}
+	cp -a core package/${ARC_NAME}
+	cp -a compile package/${ARC_NAME}
+	cp -a validate package/${ARC_NAME}
+	cp -a test package/${ARC_NAME}
 	cp -a vendor package/${ARC_NAME}
 
 	# Cleanup. Also https://github.com/rust-lang/cargo/issues/7058
