@@ -1,13 +1,19 @@
 pub mod action;
+pub mod command_line;
 pub mod config;
 pub mod ordering;
 mod perform_action;
 pub mod task;
 mod validate;
-pub mod command_line;
 
 use anyhow::Result;
 use config::read_config;
+use futures::StreamExt;
+use nix::{
+    libc::{SIGABRT, SIGCHLD, SIGHUP, SIGPIPE, SIGTERM, SIGTSTP}, sys::wait::waitpid, unistd::Pid
+};
+use signal_hook::{iterator::exfiltrator::WithOrigin, low_level::siginfo::Origin};
+use signal_hook_async_std::SignalsInfo;
 use std::{env, path::Path, time::Duration};
 use tracing::{error, info, Level};
 use tracing_subscriber::FmtSubscriber;
@@ -18,12 +24,29 @@ use smol::{
 };
 use task::{ContextMap, Task};
 
+const SIGS: &[i32] = &[SIGABRT, SIGTERM, SIGCHLD, SIGHUP, SIGPIPE, SIGTSTP];
 
 pub static VERSION: &str = "0.1";
 fn main() {
+    let mut signals = SignalsInfo::<WithOrigin>::new(SIGS).unwrap();
+
+    smol::spawn(async move {
+        while let Some(sig) = signals.next().await {
+            match sig {
+                Origin { signal: SIGCHLD, process: Some(proc), .. } => {
+                    // Ignore Err(_) since ECHILD is expected
+                    waitpid(Some(Pid::from_raw(proc.pid)), None).ok();
+                    info!("Cleaned up zombie {}", proc.pid);
+                },
+                _ => {}
+            }
+        }
+    })
+    .detach();
+
     env::set_var("SMOL_THREADS", "8");
     let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::WARN)
+        .with_max_level(Level::INFO)
         .finish();
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
@@ -62,7 +85,7 @@ async fn wait_for_commands(context: ContextMap<'static>) {
                         error!(%error);
                     }
                 }
-                _ => { break }
+                _ => break,
             }
 
             buf.clear();
