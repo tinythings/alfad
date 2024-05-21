@@ -1,7 +1,8 @@
 use std::str::FromStr;
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use thiserror::Error;
+use strum::{Display, EnumIter};
 
 #[derive(Debug, Parser)]
 pub enum Action {
@@ -33,27 +34,47 @@ pub enum Action {
         /// Ignore conditions and restart immediately
         force: bool,
     },
+    System {
+        command: SystemCommand,
+    },
+}
+
+#[derive(Parser, Debug, Clone, ValueEnum, Display, EnumIter)]
+#[strum(serialize_all = "snake_case")]
+pub enum SystemCommand {
+    Poweroff,
+    Restart,
+    Halt
 }
 
 impl FromStr for Action {
     type Err = ActionError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if let Some((action, payload)) = s.split_once(' ') {
+        let c = if let Some((action, payload)) = s.split_once(' ') {
             let task = payload.to_owned();
             match action {
-                "kill" => Ok(Action::Kill { task, force: false }),
-                "force-kill" => Ok(Action::Kill { task, force: true }),
-                "deactivate" => Ok(Action::Kill { task, force: false }),
-                "force-deactivate" => Ok(Action::Kill { task, force: true }),
-                "restart" => Ok(Action::Restart { task, force: false }),
-                "force-restart" => Ok(Action::Restart { task, force: true }),
-                "start" => Ok(Action::Start { task, force: false }),
-                "force-start" => Ok(Action::Start { task, force: true }),
-                _ => Err(ActionError::ActionNotFound(s.to_owned())),
+                "kill" => Action::Kill { task, force: false },
+                "force-kill" => Action::Kill { task, force: true },
+                "deactivate" => Action::Kill { task, force: false },
+                "force-deactivate" => Action::Kill { task, force: true },
+                "restart" => Action::Restart { task, force: false },
+                "force-restart" => Action::Restart { task, force: true },
+                "start" => Action::Start { task, force: false },
+                "force-start" => Action::Start { task, force: true },
+                "system" => Action::System {
+                    command: match payload {
+                        "poweroff" => SystemCommand::Poweroff,
+                        "restart" => SystemCommand::Restart,
+                        "halt" => SystemCommand::Halt,
+                        _ => return Err(ActionError::ActionNotFound(s.to_owned())),
+                    },
+                },
+                _ => return Err(ActionError::ActionNotFound(s.to_owned())),
             }
         } else {
-            Err(ActionError::SyntaxError(s.to_owned()))
-        }
+            return Err(ActionError::SyntaxError(s.to_owned()));
+        };
+        Ok(c)
     }
 }
 
@@ -68,6 +89,7 @@ impl ToString for Action {
             Action::Start { task, force: true } => format!("force-start {task}"),
             Action::Restart { task, force: false } => format!("restart {task}"),
             Action::Restart { task, force: true } => format!("force-restart {task}"),
+            Action::System { command } => format!("system {command}"),
         }
     }
 }

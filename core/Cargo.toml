@@ -6,7 +6,6 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.82"
 clap = { version = "4.5.4", features = ["derive"] }
-enum-display-derive = "0.1.1"
 futures = "0.3.30"
 itertools = "0.12.1"
 lazy_static = "1.4.0"
@@ -20,6 +19,7 @@ signal-hook = { version = "0.3.17", features = ["extended-siginfo-raw", "extende
 signal-hook-async-std = "0.2.2"
 smallvec = { version = "1.13.2", features = ["serde"] }
 smol = "2.0.0"
+strum = { version = "0.26.2", features = ["derive"] }
 thiserror = "1.0.59"
 topological-sort = "0.2.2"
 tracing = "0.1.40"

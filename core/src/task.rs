@@ -2,11 +2,10 @@ use std::{
     collections::HashMap, fmt::Debug, future::Future, num::NonZeroU32, ops::ControlFlow, path::Path, pin::{pin, Pin}, sync::Arc, task::{Context, Poll, Waker}
 };
 
-use enum_display_derive::Display;
+use strum::Display;
 
 use nix::{sys::signal::Signal, unistd::Pid};
 
-use std::fmt::Display;
 use tracing::{error, info, info_span, trace, warn};
 
 use serde::{Deserialize, Serialize};
@@ -28,6 +27,16 @@ pub enum TaskState {
     Killed,
     /// Like Terminated but will not try to run again even if retries are left
     Deactivated,
+}
+
+impl TaskState {
+    pub fn has_concluded(&self) -> bool {
+        matches!(self, Self::Deactivated | Self::Done | Self::Failed | Self::Terminated | Self::Killed)
+    }
+
+    pub fn is_waiting(&self) -> bool {
+        *self == Self::Waiting
+    }
 }
 
 impl Default for TaskState {
@@ -311,6 +320,10 @@ impl TaskContext {
             TaskState::Done => self.after.drain(..).for_each(|w| w.wake_by_ref()),
             _ => {}
         }
+    }
+
+    pub fn state(&self) -> TaskState {
+        self.state
     }
 
     pub fn sanity_check(&self) -> bool {
