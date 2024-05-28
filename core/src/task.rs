@@ -1,5 +1,11 @@
 use std::{
-    collections::HashMap, fmt::Debug, future::Future, num::NonZeroU32, ops::ControlFlow, path::Path, pin::{pin, Pin}, sync::Arc, task::{Context, Poll, Waker}
+    collections::HashMap,
+    fmt::Debug,
+    future::Future,
+    ops::ControlFlow,
+    path::Path,
+    pin::{pin, Pin},
+    task::{Context, Poll, Waker},
 };
 
 use strum::Display;
@@ -8,12 +14,12 @@ use nix::{sys::signal::Signal, unistd::Pid};
 
 use tracing::{error, info, info_span, trace, warn};
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use smol::{lock::RwLock, ready};
 
-use crate::command_line::{Child, CommandLine, CommandLineError, CommandLines};
+use crate::{command_line::Child, config::{Respawn, TaskConfig}};
 
-pub type ContextMap<'a> = &'static HashMap<&'a str, Arc<RwLock<TaskContext>>>;
+pub type ContextMap<'a> = &'a HashMap<&'a str, RwLock<TaskContext>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Display)]
 pub enum TaskState {
@@ -31,7 +37,10 @@ pub enum TaskState {
 
 impl TaskState {
     pub fn has_concluded(&self) -> bool {
-        matches!(self, Self::Deactivated | Self::Done | Self::Failed | Self::Terminated | Self::Killed)
+        matches!(
+            self,
+            Self::Deactivated | Self::Done | Self::Failed | Self::Terminated | Self::Killed
+        )
     }
 
     pub fn is_waiting(&self) -> bool {
@@ -45,57 +54,13 @@ impl Default for TaskState {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
-pub enum Respawn {
-    /// Never retry this task (default)
-    No,
-    /// Restart this task up to N times
-    ///
-    /// N = 0, restart this task an unlimited number of times
-    // TODO: Does manual restart affect the counter, if so: how
-    Retry(usize),
-}
-
-impl Default for Respawn {
-    fn default() -> Self {
-        Self::No
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct TaskConfig {
-    pub name: String,
-    // #[serde(default)]
-    pub cmd: CommandLines,
-    // #[serde(default)]
-    pub with: Vec<String>,
-    // #[serde(default)]
-    pub after: Vec<String>,
-    // #[serde(default)]
-    pub respawn: Respawn,
-    pub group: Option<String>,
-}
-
-impl TaskConfig {
-    pub fn new(name: String) -> Self {
-        Self {
-            name,
-            ..Default::default()
-        }
-    }
-
-    pub fn after(&mut self, name: &str) -> &mut Self {
-        self.after.push(name.to_owned());
-        self
-    }
-}
-
+#[derive(Debug)]
 pub struct Task<'a> {
     pub state: TaskState,
     pub config: &'a TaskConfig,
-    pub context_map: &'a HashMap<&'a str, Arc<RwLock<TaskContext>>>,
-    context: Arc<RwLock<TaskContext>>,
-    pub process: Option<Child>,
+    pub context_map: ContextMap<'static>,
+    context: &'a RwLock<TaskContext>,
+    // pub process: Option<Child>,
 }
 
 impl Future for Task<'_> {
@@ -155,7 +120,7 @@ impl<'a> Task<'a> {
 
     pub fn new(
         config: &'a TaskConfig,
-        context_map: &'a HashMap<&'a str, Arc<RwLock<TaskContext>>>,
+        context_map: ContextMap<'static>,
     ) -> Self {
         Self {
             state: TaskState::Waiting,
@@ -164,8 +129,6 @@ impl<'a> Task<'a> {
             context: context_map
                 .get(config.name.as_str())
                 .expect("generated from the same list and must thus be in the context_map")
-                .clone(),
-            process: None,
         }
     }
 
@@ -241,57 +204,17 @@ impl<'a> Task<'a> {
         let _s = info_span!("Running", task = self.config.name);
         let _s = _s.enter();
 
-        if let Some(command) = self.config.cmd.get(x) {
-            let state = self.run_command(command).await;
-            if matches!(state, TaskState::Failed | TaskState::Terminated) {
-                return state;
-            }
-            TaskState::Running(x + 1)
-        } else {
-            TaskState::Done
-        }
-    }
+        let payload = &self.config.payload;
+        // let context = &mut self.context;
 
-    async fn run_command(&mut self, command: &CommandLine) -> TaskState {
-        let child = match self.process.as_mut() {
-            Some(child) => child,
-            None => {
-                let child = match command.spawn() {
-                    Ok(c) => c,
-                    Err(CommandLineError::EmptyCommand) => return TaskState::Done,
-                    Err(e) => {
-                        error!(%e);
-                        return TaskState::Failed;
-                    }
-                };
-                let pid = child.id();
-                self.context.write().await.pid = NonZeroU32::new(pid);
-                self.process = Some(child);
-                self.process.as_mut().unwrap()
-            }
-        };
-
-        match child.status().await {
-            _ if self.state == TaskState::Terminating => self.state = TaskState::Terminated,
-            Ok(status) if status.success() => self.state = TaskState::Done,
-            status => {
-                error!(exit = ?status);
-                return TaskState::Failed;
-            }
+        match payload.run(x, self.context, self.context_map).await {
+            ControlFlow::Break(state) => state,
+            ControlFlow::Continue(_) => TaskState::Running(x + 1)
         }
-        self.context.write().await.pid = None;
-        self.process = None;
-        TaskState::Done
     }
 
     async fn wait_for_terminate(&mut self) -> TaskState {
-        if let Some(child) = self.process.as_mut() {
-            child.status().await.ok();
-            self.state = TaskState::Terminated;
-            self.context.write().await.pid = None;
-            self.process = None;
-        }
-        TaskState::Terminated
+        self.context.write().await.wait_for_terminate().await
     }
 
     async fn propagate_state(&mut self) {
@@ -306,7 +229,7 @@ pub struct TaskContext {
     state: TaskState,
     with: Vec<Waker>,
     after: Vec<Waker>,
-    pid: Option<NonZeroU32>,
+    pub child: Option<Child>,
     respawn_attempts: usize,
     /// used to wake this task from the outside
     waker: Option<Waker>,
@@ -316,8 +239,8 @@ impl TaskContext {
     pub fn update_state(&mut self, state: TaskState) {
         self.state = state;
         match self.state {
-            TaskState::Running(_) => self.with.drain(..).for_each(|w| w.wake_by_ref()),
-            TaskState::Done => self.after.drain(..).for_each(|w| w.wake_by_ref()),
+            TaskState::Running(_) => self.with.drain(..).for_each(|w| w.wake()),
+            TaskState::Done => self.after.drain(..).for_each(|w| w.wake()),
             _ => {}
         }
     }
@@ -327,20 +250,20 @@ impl TaskContext {
     }
 
     pub fn sanity_check(&self) -> bool {
-        if let Some(pid) = self.pid {
-            Path::new(&format!("/proc/{}", pid)).exists()
+        if let Some(ref pid) = self.child {
+            Path::new(&format!("/proc/{}", pid.0.id())).exists()
         } else {
             false
         }
     }
 
     pub fn send_signal(&self, signal: Signal) {
-        if let Some(pid) = self.pid {
+        if let Some(ref child) = self.child {
             if !self.sanity_check() {
                 error!("sanity check failed");
                 return;
             }
-            let pid = Pid::from_raw(pid.get() as i32);
+            let pid = Pid::from_raw(child.id() as i32);
             if let Err(error) = nix::sys::signal::kill(pid, signal) {
                 error!("{error}");
             }
@@ -353,5 +276,15 @@ impl TaskContext {
         if let Some(waker) = self.waker.take() {
             waker.wake();
         };
+    }
+
+    pub async fn wait_for_terminate(&mut self) -> TaskState {
+        info!("Killing {:?}", self.child.as_ref().map(|c| c.id()));
+        if let Some(child) = self.child.as_mut() {
+            child.status().await.ok();
+            self.state = TaskState::Terminated;
+            self.child = None;
+        }
+        TaskState::Terminated
     }
 }
