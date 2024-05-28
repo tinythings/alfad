@@ -7,6 +7,7 @@ name = "alfad"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "clap",
  "futures",
  "itertools",
@@ -24,19 +25,6 @@ dependencies = [
  "strum",
  "thiserror",
  "topological-sort",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "alfad-compile"
-version = "0.1.0"
-dependencies = [
- "alfad",
- "anyhow",
- "clap",
- "postcard",
- "serde",
  "tracing",
  "tracing-subscriber",
 ]
@@ -245,6 +233,17 @@ name = "async-task"
 version = "4.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fbb36e985947064623dbd357f727af08ffd077f93d696782f3c56365fa2e2799"
+
+[[package]]
+name = "async-trait"
+version = "0.1.80"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6fa2087f2753a7da8cc1c0dbfcf89579dd57458e36769de5ac750b4671737ca"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "atomic-polyfill"
@@ -1236,13 +1235,6 @@ name = "utf8parse"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "711b9620af191e0cdc7468a8d14e709c3dcdb115b36f838e601583af800a370a"
-
-[[package]]
-name = "validate"
-version = "0.1.0"
-dependencies = [
- "alfad",
-]
 
 [[package]]
 name = "valuable"

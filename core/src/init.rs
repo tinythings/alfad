@@ -11,8 +11,7 @@ use nix::{
 use signal_hook::{iterator::exfiltrator::WithOrigin, low_level::siginfo::Origin};
 use signal_hook_async_std::SignalsInfo;
 use std::env;
-use tracing::{info, Level};
-use tracing_subscriber::FmtSubscriber;
+use tracing::info;
 
 use crate::task::{ContextMap, Task};
 
@@ -44,12 +43,6 @@ impl Alfad {
         .detach();
 
         env::set_var("SMOL_THREADS", "8");
-        let subscriber = FmtSubscriber::builder()
-            .with_max_level(Level::WARN)
-            .finish();
-
-        tracing::subscriber::set_global_default(subscriber)
-            .expect("setting default subscriber failed");
         info!("Starting alfad");
         let configs = Box::leak(Box::new(read_config(self.builtin)));
         let context: ContextMap = Box::leak(Box::new(

@@ -1,19 +1,22 @@
 use std::{
     env,
-    ops::{Deref, DerefMut},
+    ops::{ControlFlow, Deref, DerefMut},
     process::{ExitStatus, Stdio},
     slice::Iter,
     str::FromStr,
 };
 
-
 use lazy_static::lazy_static;
 use regex::{Captures, Regex};
-use serde::{
-    Deserialize, Serialize,
-};
-use smol::process::Command;
+use serde::{Deserialize, Serialize};
+use smol::{lock::RwLock, process::Command};
 use thiserror::Error;
+use tracing::{error, info};
+
+use crate::{
+    config::payload::Runnable,
+    task::{ContextMap, TaskContext, TaskState},
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CommandLine {
@@ -62,6 +65,44 @@ impl CommandLine {
 
     pub fn spawn(&self) -> Result<Child, CommandLineError> {
         Ok(Child(self.to_command()?.spawn()?, self.ignore_return))
+    }
+
+    async fn run_line(&self, context: &RwLock<TaskContext>) -> ControlFlow<TaskState> {
+        let mut context = context.write().await;
+
+        let child = match context.child.as_mut() {
+            Some(child) => child,
+            None => match self.spawn() {
+                Ok(c) => context.child.insert(c),
+                Err(CommandLineError::EmptyCommand) => return ControlFlow::Continue(()),
+                Err(e) => {
+                    error!(%e);
+                    return ControlFlow::Break(TaskState::Failed);
+                }
+            },
+        };
+
+        match child.status().await {
+            Ok(status) if status.success() => {
+                info!(?status);
+                context.child = None;
+                ControlFlow::Continue(())
+            }
+            status => {
+                error!(exit = ?status);
+                ControlFlow::Break(TaskState::Failed)
+            }
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl Runnable for CommandLine {
+    async fn run<'a>(
+        &'a self,
+        context: &'a RwLock<TaskContext>, _context_map: ContextMap<'static>
+    ) -> ControlFlow<TaskState> {
+        self.run_line(context).await
     }
 }
 
@@ -142,7 +183,8 @@ impl FromStr for CommandLines {
     }
 }
 
-pub struct Child(smol::process::Child, bool);
+#[derive(Debug)]
+pub struct Child(pub smol::process::Child, pub bool);
 
 impl Child {
     pub async fn status(&mut self) -> Result<ExitStatus, std::io::Error> {
