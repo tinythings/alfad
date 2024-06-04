@@ -25,7 +25,13 @@ macro_rules! builtin_fn {
                 context: &'a RwLock<TaskContext>,
                 context_map: ContextMap<'static>,
             ) -> ControlFlow<TaskState> {
-                $function(context, context_map).await
+                match $function(context, context_map).await {
+                    Ok(_) => ControlFlow::Continue(()),
+                    Err(error) => {
+                        tracing::error!(%error);
+                        ControlFlow::Break($crate::task::TaskState::Failed)
+                    }
+                }
             }
         }
 

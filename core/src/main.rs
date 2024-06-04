@@ -21,7 +21,7 @@ use clap::Parser;
 use alfad::action::{Action, SystemCommand};
 use config::{read_yaml_configs, yaml::TaskConfigYaml};
 use itertools::Itertools;
-use tracing::{info, Level};
+use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 
 use crate::builtin::{
@@ -40,7 +40,6 @@ fn main() -> Result<()> {
         .finish();
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
-    info!(name);
 
     let action = match name {
         "alfad-ctl" => Action::parse_from(env::args()),
