@@ -1,105 +1,95 @@
 pub mod action;
+pub mod builtin;
 pub mod command_line;
 pub mod config;
+mod init;
 pub mod ordering;
 mod perform_action;
 pub mod task;
 mod validate;
 
-use anyhow::Result;
-use config::read_config;
-use futures::StreamExt;
-use nix::{
-    libc::{SIGABRT, SIGCHLD, SIGHUP, SIGPIPE, SIGTERM, SIGTSTP}, sys::wait::waitpid, unistd::Pid
+use std::{
+    env,
+    fs::{self, OpenOptions},
+    io::Write,
+    path::{Path, PathBuf},
 };
-use signal_hook::{iterator::exfiltrator::WithOrigin, low_level::siginfo::Origin};
-use signal_hook_async_std::SignalsInfo;
-use std::{env, path::Path, time::Duration};
-use tracing::{error, info, Level};
+
+use anyhow::{Context, Result};
+use clap::Parser;
+
+use alfad::action::{Action, SystemCommand};
+use config::{read_yaml_configs, yaml::TaskConfigYaml};
+use itertools::Itertools;
+use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 
-use smol::{
-    fs::File,
-    io::{AsyncBufReadExt, BufReader},
+use crate::builtin::{
+    ctl::{CreateCtlPipe, WaitForCommands},
+    IntoConfig,
 };
-use task::{ContextMap, Task};
-
-const SIGS: &[i32] = &[SIGABRT, SIGTERM, SIGCHLD, SIGHUP, SIGPIPE, SIGTSTP];
 
 pub static VERSION: &str = "0.1";
-fn main() {
-    let mut signals = SignalsInfo::<WithOrigin>::new(SIGS).unwrap();
 
-    smol::spawn(async move {
-        while let Some(sig) = signals.next().await {
-            match sig {
-                Origin { signal: SIGCHLD, process: Some(proc), .. } => {
-                    // Ignore Err(_) since ECHILD is expected
-                    waitpid(Some(Pid::from_raw(proc.pid)), None).ok();
-                    info!("Cleaned up zombie {}", proc.pid);
-                },
-                _ => {}
-            }
-        }
-    })
-    .detach();
+fn main() -> Result<()> {
+    let name = env::args().next().unwrap();
+    let name = Path::new(&name).file_name().unwrap().to_str().unwrap();
 
-    env::set_var("SMOL_THREADS", "8");
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::INFO)
         .finish();
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
-    info!("Starting alfad");
-    let configs = Box::leak(Box::new(read_config()));
-    let context: ContextMap = Box::leak(Box::new(
-        configs
-            .iter()
-            .map(|config| (config.name.as_str(), Default::default()))
-            .collect(),
-    ));
-    info!("Done parsing");
-    configs
-        .iter()
-        .for_each(|config| Task::spawn(config, context));
-    smol::block_on(async { wait_for_commands(context).await });
-}
 
-async fn wait_for_commands(context: ContextMap<'static>) {
-    let mut buf = String::new();
-    loop {
-        let mut pipe = match create_pipe().await {
-            Ok(x) => x,
-            Err(error) => {
-                error!("Could not create pipe: {error}");
-                smol::Timer::after(Duration::from_secs(10)).await;
-                continue;
+    let action = match name {
+        "alfad-ctl" => Action::parse_from(env::args()),
+        "alfad-compile" => return compile(),
+        "init" => {
+            return init::Alfad {
+                builtin: get_built_in(),
             }
-        };
-        loop {
-            match pipe.read_line(&mut buf).await {
-                Ok(bytes) if bytes > 0 => {
-                    let action = buf.trim();
-                    info!(action);
-                    if let Err(error) = perform_action::perform(action, &context).await {
-                        error!(%error);
-                    }
-                }
-                _ => break,
-            }
-
-            buf.clear();
+            .run()
         }
-    }
+        _ => Action::System {
+            command: SystemCommand::parse_from([String::new()].into_iter().chain(env::args())),
+        },
+    };
+
+    let payload = action.to_string();
+
+    OpenOptions::new()
+        .write(true)
+        .open("/run/var/alfad-ctl")
+        .context("alfad pipe not found")?
+        .write_all(payload.as_bytes())?;
+    Ok(())
 }
 
-async fn create_pipe() -> Result<BufReader<File>> {
-    let dir = if cfg!(debug_assertions) {
-        "test"
-    } else {
-        "/run/var"
-    };
-    let path = Path::new(dir).join("alfad-ctl");
-    let file = smol::fs::OpenOptions::new().read(true).open(&path).await?;
-    Ok(BufReader::new(file))
+fn get_built_in() -> Vec<TaskConfigYaml> {
+    vec![CreateCtlPipe.into_config(), WaitForCommands.into_config()]
+}
+
+#[derive(Parser)]
+struct Cli {
+    #[clap(default_value = "/etc/alfad")]
+    target: PathBuf,
+}
+
+fn compile() -> Result<()> {
+    let cli = Cli::parse();
+
+    let builtin = get_built_in();
+
+    let configs = (
+        VERSION,
+        read_yaml_configs(&cli.target.join("alfad.d"), get_built_in())
+            .into_iter()
+            .filter(|x| builtin.iter().all(|bi| bi.name != x.name))
+            .collect_vec(),
+    );
+    fs::write(
+        cli.target.join("alfad.bin"),
+        postcard::to_allocvec(&configs)?,
+    )?;
+    Ok(())
 }

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use itertools::Itertools;
 
-use crate::{config::TaskConfigYaml, task::TaskConfig};
+use crate::{config::yaml::TaskConfigYaml, config::TaskConfig};
 
 pub fn construct_groups(configs: &[TaskConfigYaml]) -> Vec<TaskConfigYaml> {
     let mut map = HashMap::new();

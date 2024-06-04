@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use tracing::{error, warn};
 
-use crate::task::TaskConfig;
+use crate::config::TaskConfig;
 
 pub fn validate(configs: Vec<TaskConfig>) -> Vec<TaskConfig> {
     let map: HashMap<_, _> = configs
