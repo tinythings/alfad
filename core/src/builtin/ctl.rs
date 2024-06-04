@@ -17,7 +17,7 @@ impl IntoConfig for CreateCtlPipe {
     fn into_config(self) -> TaskConfigYaml {
         TaskConfigYaml {
             name: "builtin::ctl-create".to_string(),
-            cmd: Payload::Service("mkdir -p /run/var\nmkfifo /run/var/alfad-ctl".to_string()),
+            cmd: Payload::Normal("mkdir -p /run/var\nmkfifo /run/var/alfad-ctl".to_string()),
             after: smallvec!["mount-sys-fs".to_owned()],
             ..Default::default()
         }
