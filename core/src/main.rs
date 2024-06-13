@@ -21,7 +21,7 @@ use clap::Parser;
 use alfad::action::{Action, SystemCommand};
 use config::{read_yaml_configs, yaml::TaskConfigYaml, TaskConfig};
 use itertools::Itertools;
-use tracing::{info, Level};
+use tracing::{Level};
 use tracing_subscriber::FmtSubscriber;
 
 use crate::builtin::{
