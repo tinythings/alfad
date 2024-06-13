@@ -19,9 +19,9 @@ use anyhow::{Context, Result};
 use clap::Parser;
 
 use alfad::action::{Action, SystemCommand};
-use config::{read_yaml_configs, yaml::TaskConfigYaml};
+use config::{read_yaml_configs, yaml::TaskConfigYaml, TaskConfig};
 use itertools::Itertools;
-use tracing::Level;
+use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
 use crate::builtin::{
@@ -36,7 +36,7 @@ fn main() -> Result<()> {
     let name = Path::new(&name).file_name().unwrap().to_str().unwrap();
 
     let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::INFO)
+        .with_max_level(Level::TRACE)
         .finish();
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
@@ -87,9 +87,13 @@ fn compile() -> Result<()> {
             .filter(|x| builtin.iter().all(|bi| bi.name != x.name))
             .collect_vec(),
     );
+
+    let data = postcard::to_allocvec(&configs)?;
+    let (_, _): (String, Vec<TaskConfig>) = postcard::from_bytes(data.as_ref())?;
+
     fs::write(
         cli.target.join("alfad.bin"),
-        postcard::to_allocvec(&configs)?,
+        data,
     )?;
     Ok(())
 }

@@ -1,6 +1,6 @@
 use std::{fmt::Debug, ops::ControlFlow, str::FromStr};
 
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use smol::lock::RwLock;
 
 use crate::{command_line::CommandLines, task::{ContextMap, TaskContext, TaskState}};
@@ -11,9 +11,12 @@ pub trait Runnable {
     async fn run<'a>(&'a self, context: &'a RwLock<TaskContext>, context_map: ContextMap<'static>) -> ControlFlow<TaskState>;
 }
 
+#[derive(Serialize, Deserialize)]
 pub enum Payload<T = CommandLines> {
-    Normal(T),
-    Builtin(&'static mut (dyn Runnable + Sync))
+    Marker,
+    Service(T),
+    #[serde(skip)]
+    Builtin(&'static mut (dyn Runnable + Sync)),
 }
 
 impl Payload {
@@ -21,54 +24,40 @@ impl Payload {
     pub async fn run(&self, x: usize, context: &RwLock<TaskContext>, context_map: ContextMap<'static>) -> ControlFlow<TaskState> {
 
         match self {
-            Payload::Normal(command_lines) => match command_lines.get(x) {
+            Payload::Service(command_lines) => match command_lines.get(x) {
                 Some(command_line) => command_line.run(context, context_map).await,
                 None => ControlFlow::Break(TaskState::Done)
             },
             Payload::Builtin(runnable) if x == 0 => runnable.run(context, context_map).await,
-            Payload::Builtin(_) => ControlFlow::Break(TaskState::Done),
+            _ => ControlFlow::Break(TaskState::Done),
         }
     }
-}
-
-impl Serialize for Payload {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer {
-        match self {
-            Payload::Normal(n) => n.serialize(serializer),
-            Payload::Builtin(_) => Err(<S::Error as serde::ser::Error>::custom("Cannot serialize builtin tasks")),
-        }
+    
+    pub(crate) fn is_marker(&self) -> bool {
+        matches!(self, Self::Marker)
     }
 }
 
-impl<'de, T: Deserialize<'de>> Deserialize<'de> for Payload<T> {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de> {
-        Ok(Self::Normal(T::deserialize(deserializer)?))
-    }
-}
-
-impl<T: Debug> Debug for Payload<T> {
+impl<T: Debug + DeserializeOwned> Debug for Payload<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Normal(arg0) => f.debug_tuple("Normal").field(arg0).finish(),
+            Self::Service(arg0) => f.debug_tuple("Service").field(arg0).finish(),
             Self::Builtin(_) => f.write_str("<builtin>"),
+            Self::Marker => f.write_str("<marker>"),
         }
     }
 }
 
-impl<T: Default> Default for Payload<T> {
+impl<T: Default + DeserializeOwned> Default for Payload<T> {
     fn default() -> Self {
-        Self::Normal(T::default())
+        Self::Service(T::default())
     }
 }
 
-impl<T: FromStr> FromStr for Payload<T> {
+impl<T: FromStr + DeserializeOwned> FromStr for Payload<T> {
     type Err = <T as FromStr>::Err;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self::Normal(T::from_str(s)?))
+        Ok(Self::Service(T::from_str(s)?))
     }
 }

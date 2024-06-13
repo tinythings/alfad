@@ -12,7 +12,7 @@ use std::{
 use tracing::{debug, info_span};
 
 use crate::{
-    ordering::{construct_groups, resolve_before, sort},
+    ordering::{construct_markers, resolve_before, sort},
     validate,
 };
 use tracing::{error, instrument};
@@ -125,7 +125,7 @@ pub fn read_yaml_configs(path: &Path, builtin: Vec<TaskConfigYaml>) -> Vec<TaskC
     });
 
     configs.extend(builtin);
-    let groups = construct_groups(&configs);
+    let groups = construct_markers(&configs);
     configs.extend(groups);
 
     #[cfg(feature = "before")]
