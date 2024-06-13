@@ -1,8 +1,11 @@
-use std::str::FromStr;
+use std::{
+    fmt::{Debug, Display},
+    str::FromStr,
+};
 
 use clap::{Parser, ValueEnum};
-use thiserror::Error;
 use strum::{Display, EnumIter};
+use thiserror::Error;
 
 #[derive(Debug, Parser)]
 pub enum Action {
@@ -44,7 +47,7 @@ pub enum Action {
 pub enum SystemCommand {
     Poweroff,
     Restart,
-    Halt
+    Halt,
 }
 
 impl FromStr for Action {
@@ -78,18 +81,41 @@ impl FromStr for Action {
     }
 }
 
-impl ToString for Action {
-    fn to_string(&self) -> String {
+impl Display for Action {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Action::Kill { task, force: false } => format!("kill {task}"),
-            Action::Kill { task, force: true } => format!("force-kill {task}"),
-            Action::Deactivate { task, force: false } => format!("deactivate {task}"),
-            Action::Deactivate { task, force: true } => format!("force-deactivate {task}"),
-            Action::Start { task, force: false } => format!("start {task}"),
-            Action::Start { task, force: true } => format!("force-start {task}"),
-            Action::Restart { task, force: false } => format!("restart {task}"),
-            Action::Restart { task, force: true } => format!("force-restart {task}"),
-            Action::System { command } => format!("system {command}"),
+            Action::Kill { task, force } => {
+                if *force {
+                    f.write_str("force-")?;
+                }
+                f.write_str("kill ")?;
+                f.write_str(task)
+            }
+            Action::Deactivate { task, force } => {
+                if *force {
+                    f.write_str("force-")?;
+                }
+                f.write_str("deactivate ")?;
+                f.write_str(task)
+            }
+            Action::Start { task, force } => {
+                if *force {
+                    f.write_str("force-")?;
+                }
+                f.write_str("start")?;
+                f.write_str(task)
+            }
+            Action::Restart { task, force } => {
+                if *force {
+                    f.write_str("force-")?;
+                }
+                f.write_str("restart ")?;
+                f.write_str(task)
+            }
+            Action::System { command } => {
+                f.write_str("system ")?;
+                Display::fmt(command, f)
+            }
         }
     }
 }
