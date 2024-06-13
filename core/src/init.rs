@@ -22,21 +22,19 @@ pub struct Alfad {
 }
 
 impl Alfad {
-    pub fn run(self) -> Result<()>{
+    pub fn run(self) -> Result<()> {
         let mut signals = SignalsInfo::<WithOrigin>::new(SIGS).unwrap();
 
         smol::spawn(async move {
             while let Some(sig) = signals.next().await {
-                match sig {
-                    Origin {
-                        signal: SIGCHLD,
-                        process: Some(proc),
-                        ..
-                    } => {
-                        // Ignore Err(_) since ECHILD is expected
-                        waitpid(Some(Pid::from_raw(proc.pid)), None).ok();
-                    }
-                    _ => {}
+                if let Origin {
+                    signal: SIGCHLD,
+                    process: Some(proc),
+                    ..
+                } = sig
+                {
+                    // Ignore Err(_) since ECHILD is expected
+                    waitpid(Some(Pid::from_raw(proc.pid)), None).ok();
                 }
             }
         })
