@@ -1,6 +1,6 @@
 use std::{ops::ControlFlow, path::Path, time::Duration};
 
-use crate::config::{payload::Payload, yaml::TaskConfigYaml};
+use crate::config::yaml::TaskConfigYaml;
 use anyhow::Result;
 use nix::{sys::stat::Mode, unistd::mkfifo};
 use smallvec::smallvec;
@@ -16,9 +16,9 @@ builtin_fn!(CreateCtlPipe: create_ctl);
 impl IntoConfig for CreateCtlPipe {
     fn into_config(self) -> TaskConfigYaml {
         TaskConfigYaml {
-            name: "builtin::ctl-create".to_string(),
-            cmd: Payload::Normal("mkdir -p /run/var\nmkfifo /run/var/alfad-ctl".to_string()),
-            after: smallvec!["mount-sys-fs".to_owned()],
+            name: "builtin::ctl::create".to_string(),
+            cmd: Self::box_fn(),
+            after: smallvec!["feature::fs::run".to_owned()],
             ..Default::default()
         }
     }
@@ -36,8 +36,8 @@ builtin_fn!(WaitForCommands: wait_for_commands);
 impl IntoConfig for WaitForCommands {
     fn into_config(self) -> TaskConfigYaml {
         TaskConfigYaml {
-            name: "builtin::ctl-commands".to_string(),
-            after: smallvec!["builtin::ctl-create".to_owned()],
+            name: "builtin::ctl::daemon".to_string(),
+            after: smallvec!["builtin::ctl::create".to_owned()],
             cmd: Self::box_fn(),
             ..Default::default()
         }

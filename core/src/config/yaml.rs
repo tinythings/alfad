@@ -1,4 +1,6 @@
 
+use std::fmt::Debug;
+
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 use smallvec::SmallVec;
 
@@ -8,8 +10,34 @@ use crate::{
     config::{Respawn, TaskConfig},
 };
 
-use super::payload::Payload;
+use super::payload::{Payload, Runnable};
 
+
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PayloadYaml {
+    // #[serde(deserialize_with = "T::deserialize")]
+    Service(String),
+    #[serde(skip)]
+    Builtin(&'static mut (dyn Runnable + Sync)),
+    Marker
+}
+
+impl Default for PayloadYaml {
+    fn default() -> Self {
+        Self::Service(String::new())
+    }
+}
+
+impl Debug for PayloadYaml {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Service(arg0) => f.debug_tuple("Service").field(arg0).finish(),
+            Self::Builtin(_) => f.write_str("<builtin>"),
+            Self::Marker => f.write_str("<marker>")
+        }
+    }
+}
 
 
 #[derive(Debug, Deserialize, Serialize, Eq, Clone, Hash, PartialEq)]
@@ -43,7 +71,7 @@ impl From<RespawnYaml> for Respawn {
 pub struct TaskConfigYaml {
     pub name: String,
     #[serde(default)]
-    pub cmd: Payload<String>,
+    pub cmd: PayloadYaml,
     #[cfg(feature = "before")]
     #[serde(default)]
     #[serde(deserialize_with = "OneOrMany::read")]
@@ -57,6 +85,9 @@ pub struct TaskConfigYaml {
     #[serde(default)]
     pub respawn: RespawnYaml,
     pub group: Option<String>,
+    #[serde(default)]
+    #[serde(deserialize_with = "OneOrMany::read")]
+    pub provides: Vec<String>
 }
 
 impl TaskConfigYaml {
@@ -76,8 +107,9 @@ impl TaskConfigYaml {
         Ok(TaskConfig {
             name: self.name,
             payload: match self.cmd {
-                Payload::Normal(x) => x.parse()?,
-                Payload::Builtin(builtin) => Payload::Builtin(builtin),
+                PayloadYaml::Service(x) => x.parse()?,
+                PayloadYaml::Builtin(builtin) => Payload::Builtin(builtin),
+                PayloadYaml::Marker => Payload::Marker
             },
             with: self.with,
             after: self.after.into_vec(),

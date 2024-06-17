@@ -12,8 +12,8 @@ macro_rules! builtin_fn {
         pub struct $name;
 
         impl $name {
-            pub fn box_fn() -> $crate::config::payload::Payload<String> {
-                $crate::config::payload::Payload::Builtin(Box::leak(Box::new($name)))
+            pub fn box_fn() -> $crate::config::yaml::PayloadYaml {
+                $crate::config::yaml::PayloadYaml::Builtin(Box::leak(Box::new($name)))
             }
         }
 

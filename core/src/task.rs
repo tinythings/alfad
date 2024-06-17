@@ -17,7 +17,7 @@ use tracing::{error, info, info_span, trace, warn};
 use serde::Deserialize;
 use smol::{lock::RwLock, ready};
 
-use crate::{command_line::Child, config::{Respawn, TaskConfig}};
+use crate::{command_line::Child, config::{payload::Payload, Respawn, TaskConfig}};
 
 pub type ContextMap<'a> = &'a HashMap<&'a str, RwLock<TaskContext>>;
 
@@ -57,6 +57,7 @@ impl Default for TaskState {
 #[derive(Debug)]
 pub struct Task<'a> {
     pub state: TaskState,
+    old_state: TaskState,
     pub config: &'a TaskConfig,
     pub context_map: ContextMap<'static>,
     context: &'a RwLock<TaskContext>,
@@ -114,7 +115,9 @@ impl<'a> Task<'a> {
     }
 
     pub fn spawn(config: &'static TaskConfig, context_map: ContextMap<'static>) {
-        info!("Spawning {}", config.name);
+        if matches!(config.payload, Payload::Service(_) | Payload::Builtin(_)) {
+            info!("Spawning {}", config.name);
+        }
         smol::spawn(async move { Self::new(config, context_map).await }).detach()
     }
 
@@ -124,6 +127,7 @@ impl<'a> Task<'a> {
     ) -> Self {
         Self {
             state: TaskState::Waiting,
+            old_state: TaskState::Waiting,
             config,
             context_map,
             context: context_map
@@ -218,6 +222,10 @@ impl<'a> Task<'a> {
     }
 
     async fn propagate_state(&mut self) {
+        if self.state == self.old_state {
+            return;
+        }
+        self.old_state = self.state;
         self.trace();
         let state = self.state;
         self.context.write().await.update_state(state);
@@ -279,8 +287,8 @@ impl TaskContext {
     }
 
     pub async fn wait_for_terminate(&mut self) -> TaskState {
-        info!("Killing {:?}", self.child.as_ref().map(|c| c.id()));
         if let Some(child) = self.child.as_mut() {
+            info!("Killing {:?}", child.id());
             child.status().await.ok();
             self.state = TaskState::Terminated;
             self.child = None;

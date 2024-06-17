@@ -1,21 +1,43 @@
 use std::collections::HashMap;
 
 use itertools::Itertools;
+use tracing::warn;
 
-use crate::{config::yaml::TaskConfigYaml, config::TaskConfig};
+use crate::config::{
+    yaml::{PayloadYaml, TaskConfigYaml},
+    TaskConfig,
+};
 
-pub fn construct_groups(configs: &[TaskConfigYaml]) -> Vec<TaskConfigYaml> {
+pub fn construct_markers(configs: &[TaskConfigYaml]) -> Vec<TaskConfigYaml> {
     let mut map = HashMap::new();
     configs.iter().for_each(|config| {
         config
             .group
             .as_ref()
-            .map(|group| format!("~{group}"))
-            .map(|group| {
-                map.entry(group.clone())
-                    .or_insert_with(|| TaskConfigYaml::new(group.clone()))
+            .map(|group| format!("group::{group}"))
+            .map(|name| {
+                map.entry(name.clone())
+                    .or_insert_with(|| TaskConfigYaml {
+                        name,
+                        cmd: PayloadYaml::Marker,
+                        ..Default::default()
+                    })
                     .after(&config.name)
             });
+    });
+    configs.iter().for_each(|config| {
+        for feature in config.provides.iter() {
+            let name = format!("feature::{feature}");
+            let mut conf = TaskConfigYaml {
+                name: name.clone(),
+                cmd: PayloadYaml::Marker,
+                ..Default::default()
+            };
+            conf.after(&config.name);
+            if let Some(old) = map.insert(name, conf) {
+                warn!("Overriding feature::{feature}, already provided by {}", old.name)
+            }
+        }
     });
     map.into_values().collect()
 }
@@ -63,8 +85,8 @@ pub fn sort(configs: Vec<TaskConfig>) -> Vec<TaskConfig> {
             continue;
         }
 
-        // Move groups to the back of the list because they must always wait
-        if t.name.starts_with('~') {
+        // Move markers to the back of the list because they must always wait
+        if t.payload.is_marker() {
             continue;
         }
 
@@ -81,7 +103,11 @@ pub fn sort(configs: Vec<TaskConfig>) -> Vec<TaskConfig> {
             }
         }
     }
-    let mut res = no_deps.into_iter().flat_map(|x| map.remove(&x)).collect_vec();
+    
+    let mut res = no_deps
+        .into_iter()
+        .flat_map(|x| map.remove(&x))
+        .collect_vec();
     res.extend(sorter.flat_map(|x| map.remove(&x)));
 
     // Add all cyclical and orphaned tasks to the end, we may still want to force start them
