@@ -1,10 +1,10 @@
 use std::{ops::ControlFlow, path::Path, time::Duration};
 
-use crate::config::yaml::TaskConfigYaml;
+use crate::{config::yaml::TaskConfigYaml, task::ExitReason};
 use anyhow::Result;
 use nix::{sys::stat::Mode, unistd::mkfifo};
 use smallvec::smallvec;
-use smol::{fs::{create_dir_all, File}, io::{AsyncBufReadExt, BufReader}, lock::RwLock};
+use smol::{fs::{create_dir_all, File}, io::{AsyncBufReadExt, BufReader}};
 use tracing::{info, error};
 
 use crate::{builtin_fn, task::{ContextMap, TaskContext, TaskState}};
@@ -24,7 +24,7 @@ impl IntoConfig for CreateCtlPipe {
     }
 }
 
-async fn create_ctl(_: &RwLock<TaskContext>, _context: ContextMap<'static>) -> Result<()> {
+async fn create_ctl(_: &TaskContext, _context: ContextMap<'static>) -> Result<()> {
     create_dir_all("/run/var").await?;
     mkfifo("/run/var/alfad-ctl", Mode::S_IRWXU | Mode::S_IWOTH)?;
     Ok(())
@@ -45,10 +45,13 @@ impl IntoConfig for WaitForCommands {
 }
 
 
-async fn wait_for_commands(_: &RwLock<TaskContext>, context: ContextMap<'static>) -> Result<()> {
+async fn wait_for_commands(context: &TaskContext, context_map: ContextMap<'static>) -> Result<()> {
     let mut buf = String::new();
-    smol::block_on(async {
         loop {
+            if context.state().await == TaskState::Terminating {
+                context.update_state(TaskState::Concluded(ExitReason::Terminated)).await;
+                break Ok(());
+            };
             let mut pipe = match create_pipe().await {
                 Ok(x) => x,
                 Err(error) => {
@@ -62,7 +65,7 @@ async fn wait_for_commands(_: &RwLock<TaskContext>, context: ContextMap<'static>
                     Ok(bytes) if bytes > 0 => {
                         let action = buf.trim();
                         info!(action);
-                        if let Err(error) = crate::perform_action::perform(action, context).await {
+                        if let Err(error) = crate::perform_action::perform(action, context_map).await {
                             error!(%error);
                         }
                     }
@@ -72,7 +75,6 @@ async fn wait_for_commands(_: &RwLock<TaskContext>, context: ContextMap<'static>
                 buf.clear();
             }
         }
-    })
 }
 
 async fn create_pipe() -> Result<BufReader<File>> {

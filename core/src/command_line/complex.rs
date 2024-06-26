@@ -9,13 +9,13 @@ use std::{
 use lazy_static::lazy_static;
 use regex::{Captures, Regex};
 use serde::{Deserialize, Serialize};
-use smol::{lock::RwLock, process::Command};
+use smol::process::Command;
 use thiserror::Error;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use crate::{
     config::payload::Runnable,
-    task::{ContextMap, TaskContext, TaskState},
+    task::{ContextMap, ExitReason, TaskContext, TaskState},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -67,30 +67,30 @@ impl CommandLine {
         Ok(Child(self.to_command()?.spawn()?, self.ignore_return))
     }
 
-    async fn run_line(&self, context: &RwLock<TaskContext>) -> ControlFlow<TaskState> {
-        let mut context = context.write().await;
-
-        let child = match context.child.as_mut() {
-            Some(child) => child,
-            None => match self.spawn() {
-                Ok(c) => context.child.insert(c),
+    async fn run_line(&self, context: &TaskContext) -> ControlFlow<TaskState> {
+        // let mut context = context.write().await;
+        
+        debug!(cmd = ?self.args, "Running");
+        let mut child = match self.spawn() {
+                Ok(c) => c,
                 Err(CommandLineError::EmptyCommand) => return ControlFlow::Continue(()),
                 Err(e) => {
                     error!(%e);
-                    return ControlFlow::Break(TaskState::Failed);
+                    return ControlFlow::Break(TaskState::Concluded(ExitReason::Failed));
                 }
-            },
         };
+
+        (*context.child.write().await) = Some(child.id() as i32);
 
         match child.status().await {
             Ok(status) if status.success() => {
                 info!(?status);
-                context.child = None;
+                (*context.child.write().await) = None;
                 ControlFlow::Continue(())
             }
             status => {
                 error!(exit = ?status);
-                ControlFlow::Break(TaskState::Failed)
+                ControlFlow::Break(TaskState::Concluded(ExitReason::Failed))
             }
         }
     }
@@ -100,7 +100,7 @@ impl CommandLine {
 impl Runnable for CommandLine {
     async fn run<'a>(
         &'a self,
-        context: &'a RwLock<TaskContext>, _context_map: ContextMap<'static>
+        context: &'a TaskContext, _context_map: ContextMap<'static>
     ) -> ControlFlow<TaskState> {
         self.run_line(context).await
     }
