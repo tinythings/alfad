@@ -2,7 +2,7 @@ use std::{ffi::c_int, str::FromStr, time::Duration};
 
 use crate::{
     action::{Action, ActionError, SystemCommand},
-    task::{ContextMap, TaskContext, TaskState},
+    task::{ContextMap, ExitReason, TaskContext, TaskState},
 };
 use futures::{future::join_all, select, FutureExt};
 use nix::{
@@ -12,7 +12,6 @@ use nix::{
     },
     sys::signal::Signal,
 };
-use smol::lock::RwLock;
 use thiserror::Error;
 use tracing::{error, info};
 
@@ -22,12 +21,12 @@ pub async fn perform<'a>(s: &'a str, context: ContextMap<'static>) -> Result<(),
         Action::Deactivate { task, force } => {
             kill_by_name(&task, force, context).await?;
             get_context(context, &task)?
-                .write()
-                .await
-                .update_state(TaskState::Deactivated);
+                .update_state(TaskState::Concluded(ExitReason::Deactivated))
+                .await;
         }
         Action::Restart { task, force } => {
             kill_by_name(&task, force, context).await?;
+            context.wait_for_conclusion(&task).await;
             start(task, force, context).await?;
         }
         Action::Start { task, force } => start(task, force, context).await?,
@@ -58,16 +57,22 @@ pub async fn perform<'a>(s: &'a str, context: ContextMap<'static>) -> Result<(),
 pub struct FailedToKill(&'static str);
 
 async fn kill_all(force: bool, context_map: ContextMap<'static>) -> Vec<Result<(), FailedToKill>> {
-    join_all(context_map.iter().map(|(name, context)| async {
-        select! {
-            _ = async {
-                let mut guard = context.write().await;
-                kill(&mut guard, force).await;
-                guard.wait_for_terminate().await;
-            }.fuse() => Ok(()),
-            _ = smol::Timer::after(Duration::from_millis(1000)).fuse() => Err(FailedToKill(name))
-        }
-    }))
+    join_all(
+        context_map
+            .0
+            .iter()
+            .filter(|(name, _)| **name != "builtin::ctl::daemon")
+            .map(|(name, context)| async move {
+                select! {
+                    _ = async {
+                        kill(context, force).await;
+                        context_map.wait_for_conclusion(name).await;
+                    }.fuse() => (),
+                    _ = smol::Timer::after(Duration::from_millis(1000)).fuse() => ()
+                }
+                Ok(())
+            }),
+    )
     .await
 }
 
@@ -76,41 +81,38 @@ fn fee1dead(code: c_int) -> c_long {
 }
 
 async fn kill_by_name(task: &str, force: bool, context: ContextMap<'_>) -> Result<(), ActionError> {
-    kill(&mut (*get_context(context, task)?.write().await), force).await;
+    kill(get_context(context, task)?, force).await;
     Ok(())
 }
 
-async fn kill(task: &mut TaskContext, force: bool) {
-    if task.state().has_concluded() || task.state().is_waiting() {
+async fn kill(task: &TaskContext, force: bool) {
+    if task.state().await.has_concluded() || task.state().await.is_waiting() {
         return;
     }
     if force {
-        task.send_signal(Signal::SIGKILL);
-        task.update_state(TaskState::Terminated);
+        task.send_signal(Signal::SIGKILL).await;
+        task.update_state(TaskState::Concluded(ExitReason::Terminated))
+            .await;
     } else {
-        task.send_signal(Signal::SIGTERM);
-        task.update_state(TaskState::Terminating);
+        task.send_signal(Signal::SIGTERM).await;
+        task.update_state(TaskState::Terminating).await;
     }
 }
 
 async fn start(task: String, force: bool, context: ContextMap<'_>) -> Result<(), ActionError> {
     let context = get_context(context, &task)?;
-    let mut context = context.write().await;
+    // let mut context = context.write().await;
     let new_state = if force {
-        TaskState::Starting
+        TaskState::Created
     } else {
         TaskState::Waiting
     };
-    context.update_state(new_state);
-    context.wake();
+    context.update_state(new_state).await;
     Ok(())
 }
 
-fn get_context<'a>(
-    context: ContextMap<'a>,
-    name: &str,
-) -> Result<&'a RwLock<TaskContext>, ActionError> {
-    if let Some(context) = context.get(name) {
+fn get_context<'a>(context: ContextMap<'a>, name: &str) -> Result<&'a TaskContext, ActionError> {
+    if let Some(context) = context.0.get(name) {
         Ok(context)
     } else {
         Err(ActionError::TaskNotFound(name.to_owned()))

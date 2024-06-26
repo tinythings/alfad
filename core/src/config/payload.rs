@@ -1,14 +1,13 @@
 use std::{fmt::Debug, ops::ControlFlow, str::FromStr};
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use smol::lock::RwLock;
 
-use crate::{command_line::CommandLines, task::{ContextMap, TaskContext, TaskState}};
+use crate::{command_line::CommandLines, task::{ContextMap, ExitReason, TaskContext, TaskState}, builtin::BuiltInService};
 
 
 #[async_trait::async_trait]
 pub trait Runnable {
-    async fn run<'a>(&'a self, context: &'a RwLock<TaskContext>, context_map: ContextMap<'static>) -> ControlFlow<TaskState>;
+    async fn run<'a>(&'a self, context: &'a TaskContext, context_map: ContextMap<'static>) -> ControlFlow<TaskState>;
 }
 
 #[derive(Serialize, Deserialize)]
@@ -16,20 +15,20 @@ pub enum Payload<T = CommandLines> {
     Marker,
     Service(T),
     #[serde(skip)]
-    Builtin(&'static mut (dyn Runnable + Sync)),
+    Builtin(BuiltInService),
 }
 
 impl Payload {
 
-    pub async fn run(&self, x: usize, context: &RwLock<TaskContext>, context_map: ContextMap<'static>) -> ControlFlow<TaskState> {
+    pub async fn run(&self, x: usize, context: &TaskContext, context_map: ContextMap<'static>) -> ControlFlow<TaskState> {
 
         match self {
             Payload::Service(command_lines) => match command_lines.get(x) {
                 Some(command_line) => command_line.run(context, context_map).await,
-                None => ControlFlow::Break(TaskState::Done)
+                None => ControlFlow::Break(TaskState::Concluded(ExitReason::Done))
             },
             Payload::Builtin(runnable) if x == 0 => runnable.run(context, context_map).await,
-            _ => ControlFlow::Break(TaskState::Done),
+            _ => ControlFlow::Break(TaskState::Concluded(ExitReason::Done)),
         }
     }
     

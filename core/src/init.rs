@@ -1,21 +1,19 @@
-use crate::config::read_config;
+use crate::{config::read_config, task::TaskContext};
 use crate::config::yaml::TaskConfigYaml;
 
 use anyhow::Result;
 use futures::StreamExt;
-use nix::{
-    libc::{SIGABRT, SIGCHLD, SIGHUP, SIGPIPE, SIGTERM, SIGTSTP},
-    sys::wait::waitpid,
-    unistd::Pid,
-};
-use signal_hook::{iterator::exfiltrator::WithOrigin, low_level::siginfo::Origin};
+use nix::
+    libc::{SIGABRT, SIGHUP, SIGPIPE, SIGTERM, SIGTSTP}
+;
+use signal_hook::iterator::exfiltrator::WithOrigin;
 use signal_hook_async_std::SignalsInfo;
 use std::env;
 use tracing::info;
 
-use crate::task::{ContextMap, Task};
+use crate::task::ContextMap;
 
-const SIGS: &[i32] = &[SIGABRT, SIGTERM, SIGCHLD, SIGHUP, SIGPIPE, SIGTSTP];
+const SIGS: &[i32] = &[SIGABRT, SIGTERM, SIGHUP, SIGPIPE, SIGTSTP];
 
 pub struct Alfad {
     pub builtin: Vec<TaskConfigYaml>,
@@ -26,33 +24,25 @@ impl Alfad {
         let mut signals = SignalsInfo::<WithOrigin>::new(SIGS).unwrap();
 
         smol::spawn(async move {
-            while let Some(sig) = signals.next().await {
-                if let Origin {
-                    signal: SIGCHLD,
-                    process: Some(proc),
-                    ..
-                } = sig
-                {
-                    // Ignore Err(_) since ECHILD is expected
-                    waitpid(Some(Pid::from_raw(proc.pid)), None).ok();
-                }
+            loop {
+                signals.next().await;
             }
         })
         .detach();
 
         env::set_var("SMOL_THREADS", "8");
         info!("Starting alfad");
-        let configs = Box::leak(Box::new(read_config(self.builtin)));
-        let context: ContextMap = Box::leak(Box::new(
+        let configs = read_config(self.builtin);
+        let context: ContextMap = ContextMap(Box::leak(Box::new(
             configs
-                .iter()
-                .map(|config| (config.name.as_str(), Default::default()))
+                .into_iter()
+                .map(|config| (&*config.name.clone().leak(), TaskContext::new(config)))
                 .collect(),
-        ));
-        info!("Done parsing");
-        configs
-            .iter()
-            .for_each(|config| Task::spawn(config, context));
+        )));
+        info!("Done parsing ({} tasks)", context.0.len());
+        context.0
+            .values()
+            .for_each(|config| crate::task::spawn(config, context));
         // smol::block_on(async { wait_for_commands(context).await });
         smol::block_on(smol::Timer::never());
         Ok(())

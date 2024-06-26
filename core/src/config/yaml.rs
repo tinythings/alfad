@@ -6,11 +6,10 @@ use smallvec::SmallVec;
 
 
 use crate::{
-    command_line,
-    config::{Respawn, TaskConfig},
+    builtin::BuiltInService, command_line, config::{Respawn, TaskConfig}
 };
 
-use super::payload::{Payload, Runnable};
+use super::payload::Payload;
 
 
 #[derive(Serialize, Deserialize)]
@@ -19,7 +18,7 @@ pub enum PayloadYaml {
     // #[serde(deserialize_with = "T::deserialize")]
     Service(String),
     #[serde(skip)]
-    Builtin(&'static mut (dyn Runnable + Sync)),
+    Builtin(BuiltInService),
     Marker
 }
 
