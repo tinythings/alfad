@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := build
 
 ARC_VERSION := $(shell cat core/src/main.rs | grep 'static VERSION' | sed -e 's/.*=//g' -e 's/[" ;]//g')
-ARC_NAME := alphad-${ARC_VERSION}
+ARC_NAME := alfad-${ARC_VERSION}
 
 .PHONY:build
 dev: man
