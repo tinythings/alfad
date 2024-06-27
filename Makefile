@@ -27,10 +27,7 @@ tar:
 	cp Cargo.toml package/${ARC_NAME}
 	cp Makefile package/${ARC_NAME}
 	cp -a etc package/${ARC_NAME}
-	cp -a ctl package/${ARC_NAME}
 	cp -a core package/${ARC_NAME}
-	cp -a compile package/${ARC_NAME}
-	cp -a validate package/${ARC_NAME}
 	cp -a test package/${ARC_NAME}
 	cp -a vendor package/${ARC_NAME}
 
