@@ -2,6 +2,7 @@ pub mod action;
 pub mod builtin;
 pub mod command_line;
 pub mod config;
+pub mod def;
 mod init;
 pub mod ordering;
 mod perform_action;

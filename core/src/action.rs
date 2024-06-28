@@ -1,3 +1,4 @@
+use crate::def::{APLT_COMPILE, APLT_CTL, APLT_INIT, APLT_MAIN};
 use clap::{Parser, ValueEnum};
 use std::{
     fmt::{Debug, Display},
@@ -130,6 +131,18 @@ pub enum ActionError {
     #[error("Task does not exist '{}'", .0)]
     TaskNotFound(String),
 
-    #[error("Name or link as \"init\" expected. Do not call this binary directly!")]
+    #[error(
+        "Do not call this binary directly as {:?}! Name or link to an applet expected instead.
+The following applets are available:
+
+  - {}
+  - {}
+  - {}
+",
+        APLT_MAIN,
+        APLT_INIT,
+        APLT_CTL,
+        APLT_COMPILE
+    )]
     MainAppletCalled,
 }
