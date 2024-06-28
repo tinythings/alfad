@@ -1,3 +1,8 @@
+use super::IntoConfig;
+use crate::{
+    builtin_fn,
+    task::{ContextMap, TaskContext, TaskState},
+};
 use crate::{config::yaml::TaskConfigYaml, task::ExitReason};
 use anyhow::Result;
 use nix::{sys::stat::Mode, unistd::mkfifo};
@@ -8,13 +13,6 @@ use smol::{
 };
 use std::{ops::ControlFlow, path::Path, time::Duration};
 use tracing::{error, info};
-
-use crate::{
-    builtin_fn,
-    task::{ContextMap, TaskContext, TaskState},
-};
-
-use super::IntoConfig;
 
 builtin_fn!(CreateCtlPipe: create_ctl);
 
