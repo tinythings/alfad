@@ -1,5 +1,3 @@
-use std::{ffi::c_int, str::FromStr, time::Duration};
-
 use crate::{
     action::{Action, ActionError, SystemCommand},
     task::{ContextMap, ExitReason, TaskContext, TaskState},
@@ -12,6 +10,7 @@ use nix::{
     },
     sys::signal::Signal,
 };
+use std::{ffi::c_int, str::FromStr, time::Duration};
 use thiserror::Error;
 use tracing::{error, info};
 

@@ -1,9 +1,8 @@
+use clap::{Parser, ValueEnum};
 use std::{
     fmt::{Debug, Display},
     str::FromStr,
 };
-
-use clap::{Parser, ValueEnum};
 use strum::{Display, EnumIter};
 use thiserror::Error;
 

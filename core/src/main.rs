@@ -8,26 +8,23 @@ mod perform_action;
 pub mod task;
 mod validate;
 
+use crate::builtin::{
+    ctl::{CreateCtlPipe, WaitForCommands},
+    IntoConfig,
+};
+use alfad::action::{Action, SystemCommand};
+use anyhow::{Context, Result};
+use clap::Parser;
+use config::{read_yaml_configs, yaml::TaskConfigYaml, TaskConfig};
+use itertools::Itertools;
 use std::{
     env,
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
 };
-
-use anyhow::{Context, Result};
-use clap::Parser;
-
-use alfad::action::{Action, SystemCommand};
-use config::{read_yaml_configs, yaml::TaskConfigYaml, TaskConfig};
-use itertools::Itertools;
-use tracing::{Level};
+use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
-
-use crate::builtin::{
-    ctl::{CreateCtlPipe, WaitForCommands},
-    IntoConfig,
-};
 
 pub static VERSION: &str = "0.1";
 
@@ -91,9 +88,6 @@ fn compile() -> Result<()> {
     let data = postcard::to_allocvec(&configs)?;
     let (_, _): (String, Vec<TaskConfig>) = postcard::from_bytes(data.as_ref())?;
 
-    fs::write(
-        cli.target.join("alfad.bin"),
-        data,
-    )?;
+    fs::write(cli.target.join("alfad.bin"), data)?;
     Ok(())
 }

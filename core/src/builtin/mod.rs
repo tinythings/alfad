@@ -1,18 +1,16 @@
+use crate::task::{ContextMap, ExitReason, TaskContext};
+use crate::{
+    config::{payload::Runnable, yaml::TaskConfigYaml},
+    task::TaskState,
+};
+use async_trait::async_trait;
+use futures::{ready, Future};
 use std::{
     ops::ControlFlow,
     pin::{pin, Pin},
     task::Poll,
 };
-
-use crate::task::{ContextMap, ExitReason, TaskContext};
-use async_trait::async_trait;
-use futures::{ready, Future};
 use tracing::{debug, info};
-
-use crate::{
-    config::{payload::Runnable, yaml::TaskConfigYaml},
-    task::TaskState,
-};
 
 pub mod ctl;
 

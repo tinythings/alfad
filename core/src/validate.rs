@@ -1,8 +1,6 @@
-use std::collections::HashMap;
-
-use tracing::{error, warn};
-
 use crate::config::TaskConfig;
+use std::collections::HashMap;
+use tracing::{error, warn};
 
 pub fn validate(configs: Vec<TaskConfig>) -> Vec<TaskConfig> {
     let map: HashMap<_, _> = configs

@@ -1,12 +1,10 @@
-use std::collections::HashMap;
-
-use itertools::Itertools;
-use tracing::warn;
-
 use crate::config::{
     yaml::{PayloadYaml, TaskConfigYaml},
     TaskConfig,
 };
+use itertools::Itertools;
+use std::collections::HashMap;
+use tracing::warn;
 
 pub fn construct_markers(configs: &[TaskConfigYaml]) -> Vec<TaskConfigYaml> {
     let mut map = HashMap::new();
@@ -35,7 +33,10 @@ pub fn construct_markers(configs: &[TaskConfigYaml]) -> Vec<TaskConfigYaml> {
             };
             conf.after(&config.name);
             if let Some(old) = map.insert(name, conf) {
-                warn!("Overriding feature::{feature}, already provided by {}", old.name)
+                warn!(
+                    "Overriding feature::{feature}, already provided by {}",
+                    old.name
+                )
             }
         }
     });
@@ -103,7 +104,7 @@ pub fn sort(configs: Vec<TaskConfig>) -> Vec<TaskConfig> {
             }
         }
     }
-    
+
     let mut res = no_deps
         .into_iter()
         .flat_map(|x| map.remove(&x))

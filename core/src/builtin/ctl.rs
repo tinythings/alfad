@@ -1,13 +1,18 @@
-use std::{ops::ControlFlow, path::Path, time::Duration};
-
 use crate::{config::yaml::TaskConfigYaml, task::ExitReason};
 use anyhow::Result;
 use nix::{sys::stat::Mode, unistd::mkfifo};
 use smallvec::smallvec;
-use smol::{fs::{create_dir_all, File}, io::{AsyncBufReadExt, BufReader}};
-use tracing::{info, error};
+use smol::{
+    fs::{create_dir_all, File},
+    io::{AsyncBufReadExt, BufReader},
+};
+use std::{ops::ControlFlow, path::Path, time::Duration};
+use tracing::{error, info};
 
-use crate::{builtin_fn, task::{ContextMap, TaskContext, TaskState}};
+use crate::{
+    builtin_fn,
+    task::{ContextMap, TaskContext, TaskState},
+};
 
 use super::IntoConfig;
 
@@ -30,7 +35,6 @@ async fn create_ctl(_: &TaskContext, _context: ContextMap<'static>) -> Result<()
     Ok(())
 }
 
-
 builtin_fn!(WaitForCommands: wait_for_commands);
 
 impl IntoConfig for WaitForCommands {
@@ -44,37 +48,38 @@ impl IntoConfig for WaitForCommands {
     }
 }
 
-
 async fn wait_for_commands(context: &TaskContext, context_map: ContextMap<'static>) -> Result<()> {
     let mut buf = String::new();
-        loop {
-            if context.state().await == TaskState::Terminating {
-                context.update_state(TaskState::Concluded(ExitReason::Terminated)).await;
-                break Ok(());
-            };
-            let mut pipe = match create_pipe().await {
-                Ok(x) => x,
-                Err(error) => {
-                    error!("Could not create pipe: {error}");
-                    smol::Timer::after(Duration::from_secs(10)).await;
-                    continue;
-                }
-            };
-            loop {
-                match pipe.read_line(&mut buf).await {
-                    Ok(bytes) if bytes > 0 => {
-                        let action = buf.trim();
-                        info!(action);
-                        if let Err(error) = crate::perform_action::perform(action, context_map).await {
-                            error!(%error);
-                        }
-                    }
-                    _ => break,
-                }
-
-                buf.clear();
+    loop {
+        if context.state().await == TaskState::Terminating {
+            context
+                .update_state(TaskState::Concluded(ExitReason::Terminated))
+                .await;
+            break Ok(());
+        };
+        let mut pipe = match create_pipe().await {
+            Ok(x) => x,
+            Err(error) => {
+                error!("Could not create pipe: {error}");
+                smol::Timer::after(Duration::from_secs(10)).await;
+                continue;
             }
+        };
+        loop {
+            match pipe.read_line(&mut buf).await {
+                Ok(bytes) if bytes > 0 => {
+                    let action = buf.trim();
+                    info!(action);
+                    if let Err(error) = crate::perform_action::perform(action, context_map).await {
+                        error!(%error);
+                    }
+                }
+                _ => break,
+            }
+
+            buf.clear();
         }
+    }
 }
 
 async fn create_pipe() -> Result<BufReader<File>> {

@@ -1,6 +1,10 @@
 pub mod payload;
 pub mod yaml;
-
+use self::{payload::Payload, yaml::TaskConfigYaml};
+use crate::{
+    ordering::{construct_markers, resolve_before, sort},
+    validate,
+};
 use serde::{Deserialize, Serialize};
 use smol::stream::StreamExt;
 use std::{
@@ -10,14 +14,7 @@ use std::{
     path::Path,
 };
 use tracing::{debug, info_span};
-
-use crate::{
-    ordering::{construct_markers, resolve_before, sort},
-    validate,
-};
 use tracing::{error, instrument};
-
-use self::{payload::Payload, yaml::TaskConfigYaml};
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub enum Respawn {

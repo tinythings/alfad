@@ -1,16 +1,12 @@
-
-use std::fmt::Debug;
-
+use super::payload::Payload;
+use crate::{
+    builtin::BuiltInService,
+    command_line,
+    config::{Respawn, TaskConfig},
+};
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 use smallvec::SmallVec;
-
-
-use crate::{
-    builtin::BuiltInService, command_line, config::{Respawn, TaskConfig}
-};
-
-use super::payload::Payload;
-
+use std::fmt::Debug;
 
 #[derive(Serialize, Deserialize)]
 #[serde(untagged)]
@@ -19,7 +15,7 @@ pub enum PayloadYaml {
     Service(String),
     #[serde(skip)]
     Builtin(BuiltInService),
-    Marker
+    Marker,
 }
 
 impl Default for PayloadYaml {
@@ -33,11 +29,10 @@ impl Debug for PayloadYaml {
         match self {
             Self::Service(arg0) => f.debug_tuple("Service").field(arg0).finish(),
             Self::Builtin(_) => f.write_str("<builtin>"),
-            Self::Marker => f.write_str("<marker>")
+            Self::Marker => f.write_str("<marker>"),
         }
     }
 }
-
 
 #[derive(Debug, Deserialize, Serialize, Eq, Clone, Hash, PartialEq)]
 #[serde(untagged)]
@@ -86,7 +81,7 @@ pub struct TaskConfigYaml {
     pub group: Option<String>,
     #[serde(default)]
     #[serde(deserialize_with = "OneOrMany::read")]
-    pub provides: Vec<String>
+    pub provides: Vec<String>,
 }
 
 impl TaskConfigYaml {
@@ -108,7 +103,7 @@ impl TaskConfigYaml {
             payload: match self.cmd {
                 PayloadYaml::Service(x) => x.parse()?,
                 PayloadYaml::Builtin(builtin) => Payload::Builtin(builtin),
-                PayloadYaml::Marker => Payload::Marker
+                PayloadYaml::Marker => Payload::Marker,
             },
             with: self.with,
             after: self.after.into_vec(),
@@ -170,7 +165,7 @@ mod test {
             r#"
         name: bar
         cmd: [echo, "hello from inside bar"]
-        _after: 
+        _after:
             - foo
             - bar
         "#,

@@ -1,17 +1,13 @@
-use crate::{config::read_config, task::TaskContext};
 use crate::config::yaml::TaskConfigYaml;
-
+use crate::task::ContextMap;
+use crate::{config::read_config, task::TaskContext};
 use anyhow::Result;
 use futures::StreamExt;
-use nix::
-    libc::{SIGABRT, SIGHUP, SIGPIPE, SIGTERM, SIGTSTP}
-;
+use nix::libc::{SIGABRT, SIGHUP, SIGPIPE, SIGTERM, SIGTSTP};
 use signal_hook::iterator::exfiltrator::WithOrigin;
 use signal_hook_async_std::SignalsInfo;
 use std::env;
 use tracing::info;
-
-use crate::task::ContextMap;
 
 const SIGS: &[i32] = &[SIGABRT, SIGTERM, SIGHUP, SIGPIPE, SIGTSTP];
 
@@ -40,7 +36,8 @@ impl Alfad {
                 .collect(),
         )));
         info!("Done parsing ({} tasks)", context.0.len());
-        context.0
+        context
+            .0
             .values()
             .for_each(|config| crate::task::spawn(config, context));
         // smol::block_on(async { wait_for_commands(context).await });

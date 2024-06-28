@@ -1,3 +1,10 @@
+use crate::config::{payload::Payload, Respawn, TaskConfig};
+use nix::{sys::signal::Signal, unistd::Pid};
+use serde::Deserialize;
+use smol::{
+    lock::{RwLock, RwLockUpgradableReadGuard},
+    ready,
+};
 use std::{
     collections::HashMap,
     future::Future,
@@ -5,20 +12,8 @@ use std::{
     pin::{pin, Pin},
     task::{Context, Poll, Waker},
 };
-
 use strum::Display;
-
-use nix::{sys::signal::Signal, unistd::Pid};
-
 use tracing::{debug, error, info, trace, trace_span};
-
-use serde::Deserialize;
-use smol::{
-    lock::{RwLock, RwLockUpgradableReadGuard},
-    ready,
-};
-
-use crate::config::{payload::Payload, Respawn, TaskConfig};
 
 #[derive(Debug, Clone, Copy)]
 pub struct ContextMap<'a>(pub &'a HashMap<&'a str, TaskContext>);
@@ -102,7 +97,7 @@ pub enum ExitReason {
     Done,
     Failed,
     Terminated,
-    Deactivated
+    Deactivated,
 }
 
 impl TaskState {
@@ -141,7 +136,9 @@ pub async fn drive(context: &'static TaskContext, context_map: ContextMap<'stati
         for task in context.config.with.iter() {
             trace!("{} waiting for {task} to be Running", context.config.name);
             if context_map.wait_for_running(task).await.is_none() {
-                context.update_state(TaskState::Concluded(ExitReason::Deactivated)).await;
+                context
+                    .update_state(TaskState::Concluded(ExitReason::Deactivated))
+                    .await;
                 return;
             }
         }
@@ -154,15 +151,20 @@ pub async fn drive(context: &'static TaskContext, context_map: ContextMap<'stati
             trace!("{} waiting for {task} to be Done", context.config.name);
             if context_map
                 .wait_for(task, TaskState::Concluded(ExitReason::Done))
-                .await.is_none()
+                .await
+                .is_none()
             {
-                context.update_state(TaskState::Concluded(ExitReason::Deactivated)).await;
+                context
+                    .update_state(TaskState::Concluded(ExitReason::Deactivated))
+                    .await;
                 return;
             }
         }
 
         if context.config.payload.is_marker() {
-            context.update_state(TaskState::Concluded(ExitReason::Done)).await;
+            context
+                .update_state(TaskState::Concluded(ExitReason::Done))
+                .await;
             break;
         }
 

@@ -1,3 +1,11 @@
+use crate::{
+    config::payload::Runnable,
+    task::{ContextMap, ExitReason, TaskContext, TaskState},
+};
+use lazy_static::lazy_static;
+use regex::{Captures, Regex};
+use serde::{Deserialize, Serialize};
+use smol::process::Command;
 use std::{
     env,
     ops::{ControlFlow, Deref, DerefMut},
@@ -5,18 +13,8 @@ use std::{
     slice::Iter,
     str::FromStr,
 };
-
-use lazy_static::lazy_static;
-use regex::{Captures, Regex};
-use serde::{Deserialize, Serialize};
-use smol::process::Command;
 use thiserror::Error;
 use tracing::{debug, error, info};
-
-use crate::{
-    config::payload::Runnable,
-    task::{ContextMap, ExitReason, TaskContext, TaskState},
-};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CommandLine {
@@ -69,15 +67,15 @@ impl CommandLine {
 
     async fn run_line(&self, context: &TaskContext) -> ControlFlow<TaskState> {
         // let mut context = context.write().await;
-        
+
         debug!(cmd = ?self.args, "Running");
         let mut child = match self.spawn() {
-                Ok(c) => c,
-                Err(CommandLineError::EmptyCommand) => return ControlFlow::Continue(()),
-                Err(e) => {
-                    error!(%e);
-                    return ControlFlow::Break(TaskState::Concluded(ExitReason::Failed));
-                }
+            Ok(c) => c,
+            Err(CommandLineError::EmptyCommand) => return ControlFlow::Continue(()),
+            Err(e) => {
+                error!(%e);
+                return ControlFlow::Break(TaskState::Concluded(ExitReason::Failed));
+            }
         };
 
         (*context.child.write().await) = Some(child.id() as i32);
@@ -100,7 +98,8 @@ impl CommandLine {
 impl Runnable for CommandLine {
     async fn run<'a>(
         &'a self,
-        context: &'a TaskContext, _context_map: ContextMap<'static>
+        context: &'a TaskContext,
+        _context_map: ContextMap<'static>,
     ) -> ControlFlow<TaskState> {
         self.run_line(context).await
     }
