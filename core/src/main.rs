@@ -14,7 +14,7 @@ use crate::builtin::{
 };
 use alfad::{
     action::{Action, SystemCommand},
-    def::{APLT_COMPILE, APLT_CTL, APLT_INIT, DIR_CFG, DIR_RUN, FILE_CFG_BT},
+    def::{APLT_COMPILE, APLT_CTL, APLT_INIT, DIR_CFG, DIR_CFG_D, DIR_RUN, FILE_CFG_BT},
 };
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -57,24 +57,19 @@ fn get_built_in() -> Vec<TaskConfigYaml> {
     vec![CreateCtlPipe.into_config(), WaitForCommands.into_config()]
 }
 
-#[derive(Parser)]
-struct Cli {
-    #[clap(default_value = DIR_CFG)]
-    target: PathBuf,
-}
-
+/// Byte-compile configuration into a cache file for faster load.
+/// NOTE: Optional operation.
 fn compile() -> Result<()> {
-    let cli = Cli::parse();
-
+    let tgt = PathBuf::from(DIR_CFG);
     let data = postcard::to_allocvec(&(
         VERSION,
-        read_yaml_configs(&cli.target.join("alfad.d"), get_built_in())
+        read_yaml_configs(&PathBuf::from(DIR_CFG_D), get_built_in())
             .into_iter()
             .filter(|x| get_built_in().iter().all(|bi| bi.name != x.name))
             .collect_vec(),
     ))?;
     let (_, _): (String, Vec<TaskConfig>) = postcard::from_bytes(data.as_ref())?;
 
-    fs::write(cli.target.join(FILE_CFG_BT), data)?;
+    fs::write(tgt.join(FILE_CFG_BT), data)?;
     Ok(())
 }
