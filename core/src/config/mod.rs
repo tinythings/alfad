@@ -49,10 +49,7 @@ pub struct TaskConfig {
 
 impl TaskConfig {
     pub fn new(name: String) -> Self {
-        Self {
-            name,
-            ..Default::default()
-        }
+        Self { name, ..Default::default() }
     }
 
     pub fn after(&mut self, name: &str) -> &mut Self {
@@ -62,21 +59,12 @@ impl TaskConfig {
 }
 
 pub fn read_config(builtin: Vec<TaskConfigYaml>) -> Vec<TaskConfig> {
-    let configs = if cfg!(debug_assertions) {
-        "test"
-    } else {
-        "/etc/alfad"
-    };
+    let configs = if cfg!(debug_assertions) { "test" } else { "/etc/alfad" };
     let configs = Path::new(configs);
 
     match read_binary(configs.join("alfad.bin").as_path()) {
         Some(mut configs) => {
-            configs.extend(
-                builtin
-                    .into_iter()
-                    .map(TaskConfigYaml::into_config)
-                    .filter_map(drop_errors),
-            );
+            configs.extend(builtin.into_iter().map(TaskConfigYaml::into_config).filter_map(drop_errors));
             configs
         }
         None => read_yaml_configs(configs.join("alfad.d").as_path(), builtin),
@@ -85,12 +73,8 @@ pub fn read_config(builtin: Vec<TaskConfigYaml>) -> Vec<TaskConfig> {
 
 #[instrument]
 pub fn read_binary(path: &Path) -> Option<Vec<TaskConfig>> {
-    let packed = fs::read(path)
-        .map_err(|error| error!("Can't find alfad.bin {error}"))
-        .ok()?;
-    let (version, res) = postcard::from_bytes::<(String, Vec<_>)>(&packed)
-        .map_err(|error| error!(?error))
-        .ok()?;
+    let packed = fs::read(path).map_err(|error| error!("Can't find alfad.bin {error}")).ok()?;
+    let (version, res) = postcard::from_bytes::<(String, Vec<_>)>(&packed).map_err(|error| error!(?error)).ok()?;
     if version == crate::VERSION {
         Some(res)
     } else {
@@ -128,11 +112,7 @@ pub fn read_yaml_configs(path: &Path, builtin: Vec<TaskConfigYaml>) -> Vec<TaskC
     #[cfg(feature = "before")]
     let configs = resolve_before(configs);
 
-    let configs = configs
-        .into_iter()
-        .map(TaskConfigYaml::into_config)
-        .filter_map(drop_errors)
-        .collect();
+    let configs = configs.into_iter().map(TaskConfigYaml::into_config).filter_map(drop_errors).collect();
 
     #[cfg(feature = "validate")]
     let configs = validate::validate(configs);
