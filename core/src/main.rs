@@ -2,6 +2,7 @@ pub mod action;
 pub mod builtin;
 pub mod command_line;
 pub mod config;
+pub mod def;
 mod init;
 pub mod ordering;
 mod perform_action;
@@ -12,7 +13,11 @@ use crate::builtin::{
     ctl::{CreateCtlPipe, WaitForCommands},
     IntoConfig,
 };
-use alfad::action::{Action, SystemCommand};
+use action::ActionError;
+use alfad::{
+    action::{Action, SystemCommand},
+    def::{APLT_COMPILE, APLT_CTL, APLT_INIT, APLT_MAIN, DIR_CFG, DIR_CFG_D, DIR_RUN, FILE_CFG_BT},
+};
 use anyhow::{Context, Result};
 use clap::Parser;
 use config::{read_yaml_configs, yaml::TaskConfigYaml, TaskConfig};
@@ -32,33 +37,24 @@ fn main() -> Result<()> {
     let name = env::args().next().unwrap();
     let name = Path::new(&name).file_name().unwrap().to_str().unwrap();
 
-    let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::TRACE)
-        .finish();
-
-    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
+    tracing::subscriber::set_global_default(FmtSubscriber::builder().with_max_level(Level::TRACE).finish())
+        .expect("setting default subscriber failed");
 
     let action = match name {
-        "alfad-ctl" => Action::parse_from(env::args()),
-        "alfad-compile" => return compile(),
-        "init" => {
-            return init::Alfad {
-                builtin: get_built_in(),
-            }
-            .run()
+        APLT_CTL => Action::parse_from(env::args()),
+        APLT_COMPILE => return compile(),
+        APLT_MAIN => {
+            return Err(ActionError::MainAppletCalled.into());
         }
-        _ => Action::System {
-            command: SystemCommand::parse_from([String::new()].into_iter().chain(env::args())),
-        },
+        APLT_INIT => return init::Alfad { builtin: get_built_in() }.run(),
+        _ => Action::System { command: SystemCommand::parse_from([String::new()].into_iter().chain(env::args())) },
     };
-
-    let payload = action.to_string();
 
     OpenOptions::new()
         .write(true)
-        .open("/run/var/alfad-ctl")
-        .context("alfad pipe not found")?
-        .write_all(payload.as_bytes())?;
+        .open(PathBuf::from(DIR_RUN).join(APLT_CTL))
+        .context("alfad communication socket not found")?
+        .write_all(action.to_string().as_bytes())?;
     Ok(())
 }
 
@@ -66,28 +62,19 @@ fn get_built_in() -> Vec<TaskConfigYaml> {
     vec![CreateCtlPipe.into_config(), WaitForCommands.into_config()]
 }
 
-#[derive(Parser)]
-struct Cli {
-    #[clap(default_value = "/etc/alfad")]
-    target: PathBuf,
-}
-
+/// Byte-compile configuration into a cache file for faster load.
+/// NOTE: Optional operation.
 fn compile() -> Result<()> {
-    let cli = Cli::parse();
-
-    let builtin = get_built_in();
-
-    let configs = (
+    let tgt = PathBuf::from(DIR_CFG);
+    let data = postcard::to_allocvec(&(
         VERSION,
-        read_yaml_configs(&cli.target.join("alfad.d"), get_built_in())
+        read_yaml_configs(&PathBuf::from(DIR_CFG_D), get_built_in())
             .into_iter()
-            .filter(|x| builtin.iter().all(|bi| bi.name != x.name))
+            .filter(|x| get_built_in().iter().all(|bi| bi.name != x.name))
             .collect_vec(),
-    );
-
-    let data = postcard::to_allocvec(&configs)?;
+    ))?;
     let (_, _): (String, Vec<TaskConfig>) = postcard::from_bytes(data.as_ref())?;
 
-    fs::write(cli.target.join("alfad.bin"), data)?;
+    fs::write(tgt.join(FILE_CFG_BT), data)?;
     Ok(())
 }

@@ -1,3 +1,9 @@
+use super::IntoConfig;
+use crate::{
+    builtin_fn,
+    def::{APLT_CTL, DIR_RUN},
+    task::{ContextMap, TaskContext, TaskState},
+};
 use crate::{config::yaml::TaskConfigYaml, task::ExitReason};
 use anyhow::Result;
 use nix::{sys::stat::Mode, unistd::mkfifo};
@@ -6,15 +12,12 @@ use smol::{
     fs::{create_dir_all, File},
     io::{AsyncBufReadExt, BufReader},
 };
-use std::{ops::ControlFlow, path::Path, time::Duration};
-use tracing::{error, info};
-
-use crate::{
-    builtin_fn,
-    task::{ContextMap, TaskContext, TaskState},
+use std::{
+    ops::ControlFlow,
+    path::{Path, PathBuf},
+    time::Duration,
 };
-
-use super::IntoConfig;
+use tracing::{error, info};
 
 builtin_fn!(CreateCtlPipe: create_ctl);
 
@@ -30,8 +33,8 @@ impl IntoConfig for CreateCtlPipe {
 }
 
 async fn create_ctl(_: &TaskContext, _context: ContextMap<'static>) -> Result<()> {
-    create_dir_all("/run/var").await?;
-    mkfifo("/run/var/alfad-ctl", Mode::S_IRWXU | Mode::S_IWOTH)?;
+    create_dir_all(DIR_RUN).await?;
+    mkfifo(&PathBuf::from(DIR_RUN).join(APLT_CTL), Mode::S_IRWXU | Mode::S_IWOTH)?;
     Ok(())
 }
 
@@ -52,9 +55,7 @@ async fn wait_for_commands(context: &TaskContext, context_map: ContextMap<'stati
     let mut buf = String::new();
     loop {
         if context.state().await == TaskState::Terminating {
-            context
-                .update_state(TaskState::Concluded(ExitReason::Terminated))
-                .await;
+            context.update_state(TaskState::Concluded(ExitReason::Terminated)).await;
             break Ok(());
         };
         let mut pipe = match create_pipe().await {
@@ -83,12 +84,10 @@ async fn wait_for_commands(context: &TaskContext, context_map: ContextMap<'stati
 }
 
 async fn create_pipe() -> Result<BufReader<File>> {
-    let dir = if cfg!(debug_assertions) {
-        "test"
-    } else {
-        "/run/var"
-    };
-    let path = Path::new(dir).join("alfad-ctl");
-    let file = smol::fs::OpenOptions::new().read(true).open(&path).await?;
-    Ok(BufReader::new(file))
+    Ok(BufReader::new(
+        smol::fs::OpenOptions::new()
+            .read(true)
+            .open(&Path::new(if cfg!(debug_assertions) { "test" } else { DIR_RUN }).join(APLT_CTL))
+            .await?,
+    ))
 }

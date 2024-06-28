@@ -1,3 +1,4 @@
+use crate::def::{APLT_COMPILE, APLT_CTL, APLT_INIT, APLT_MAIN};
 use clap::{Parser, ValueEnum};
 use std::{
     fmt::{Debug, Display},
@@ -123,8 +124,25 @@ impl Display for Action {
 pub enum ActionError {
     #[error("Could not parse command '{}'", .0)]
     SyntaxError(String),
+
     #[error("Unknown action '{}'", .0)]
     ActionNotFound(String),
+
     #[error("Task does not exist '{}'", .0)]
     TaskNotFound(String),
+
+    #[error(
+        "Do not call this binary directly as {:?}! Name or link to an applet expected instead.
+The following applets are available:
+
+  - {}
+  - {}
+  - {}
+",
+        APLT_MAIN,
+        APLT_INIT,
+        APLT_CTL,
+        APLT_COMPILE
+    )]
+    MainAppletCalled,
 }
