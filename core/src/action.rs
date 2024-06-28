@@ -123,8 +123,13 @@ impl Display for Action {
 pub enum ActionError {
     #[error("Could not parse command '{}'", .0)]
     SyntaxError(String),
+
     #[error("Unknown action '{}'", .0)]
     ActionNotFound(String),
+
     #[error("Task does not exist '{}'", .0)]
     TaskNotFound(String),
+
+    #[error("Name or link as \"init\" expected. Do not call this binary directly!")]
+    MainAppletCalled,
 }

@@ -12,9 +12,10 @@ use crate::builtin::{
     ctl::{CreateCtlPipe, WaitForCommands},
     IntoConfig,
 };
+use action::ActionError;
 use alfad::{
     action::{Action, SystemCommand},
-    def::{APLT_COMPILE, APLT_CTL, APLT_INIT, DIR_CFG, DIR_CFG_D, DIR_RUN, FILE_CFG_BT},
+    def::{APLT_COMPILE, APLT_CTL, APLT_INIT, APLT_MAIN, DIR_CFG, DIR_CFG_D, DIR_RUN, FILE_CFG_BT},
 };
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -41,6 +42,9 @@ fn main() -> Result<()> {
     let action = match name {
         APLT_CTL => Action::parse_from(env::args()),
         APLT_COMPILE => return compile(),
+        APLT_MAIN => {
+            return Err(ActionError::MainAppletCalled.into());
+        }
         APLT_INIT => return init::Alfad { builtin: get_built_in() }.run(),
         _ => Action::System { command: SystemCommand::parse_from([String::new()].into_iter().chain(env::args())) },
     };
